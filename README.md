@@ -97,11 +97,49 @@ Server (`server/.env`):
 Client build-time vars (optional): `VITE_API_URL`, `VITE_WS_URL` (absolute URLs when the
 API is hosted separately from the static client); `VITE_API_TARGET` (dev proxy target).
 
-## Production notes
+## Deploy (Docker, self-host)
 
-- `npm run build` then serve `client/dist` from any static host and run `npm start` for the API.
-- Point the client at the API with `VITE_API_URL` / `VITE_WS_URL` if they're on different origins.
-- Set a strong `JWT_SECRET` and serve over HTTPS (the client uses `wss://` automatically on HTTPS).
+The app ships as a **single container**: a multi-stage build compiles all three
+workspaces, and the Node server serves the built client from the same origin
+(so `/`, `/api`, and `/ws` are all one service — no CORS or split hosting needed).
+The SQLite database lives on a named volume, so accounts and in-progress games
+survive restarts and image rebuilds.
+
+```bash
+cp .env.example .env          # then set a strong JWT_SECRET (openssl rand -hex 32)
+docker compose up -d --build  # build + run, detached
+# open http://localhost:4000
+```
+
+- Data persists in the `settlers-data` volume (mounted at `/data`). It is not
+  removed by `docker compose down`; use `docker compose down -v` to wipe it.
+- Update after code changes: `docker compose up -d --build`.
+- Logs / status: `docker compose logs -f` · `docker compose ps`.
+- Without compose:
+  ```bash
+  docker build -t settlers .
+  docker run -d -p 4000:4000 -e JWT_SECRET=$(openssl rand -hex 32) \
+    -v settlers-data:/data settlers
+  ```
+
+### Putting it on the internet
+
+The container speaks plain HTTP on port 4000. For a public deployment, front it
+with a TLS-terminating reverse proxy (Caddy, nginx, or your host's load balancer)
+that also upgrades WebSocket connections on `/ws`. The client automatically uses
+`wss://` when the page is served over HTTPS, so no client config is needed when
+everything is behind one HTTPS origin.
+
+> Verified in this repo: production single-process mode (server serving
+> `client/dist` + SQLite at `DATABASE_PATH`) and the compose config. The image
+> build itself must be run where Docker Hub is reachable.
+
+## Other production options
+
+- **Static + separate API:** `npm run build`, serve `client/dist` from any static
+  host, run `npm start` for the API, and point the client at it with `VITE_API_URL`
+  / `VITE_WS_URL`. (The Docker single-origin setup above avoids needing these.)
+- Always set a strong `JWT_SECRET` and serve over HTTPS.
 
 ## Known simplifications / next steps
 
