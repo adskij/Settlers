@@ -1,0 +1,25 @@
+{
+  "name": "settlers",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Browser-based multiplayer Settlers-style game for 4 players (base game)",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "build:shared": "npm run build --workspace shared",
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "dev": "npm run build:shared && concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "npm run build:shared && npm run build --workspace server && npm run build --workspace client",
+    "start": "npm run start --workspace server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
