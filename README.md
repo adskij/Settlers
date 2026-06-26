@@ -134,6 +134,55 @@ everything is behind one HTTPS origin.
 > `client/dist` + SQLite at `DATABASE_PATH`) and the compose config. The image
 > build itself must be run where Docker Hub is reachable.
 
+## Deploy to Azure (GitHub Actions → App Service)
+
+Continuous deployment is wired up so that **every push to `main` builds the
+container, pushes it to GitHub Container Registry (GHCR), and deploys it to
+Azure App Service for Containers** — using OIDC, so no long-lived Azure
+credentials are stored in GitHub.
+
+| Piece | File |
+|-------|------|
+| CD pipeline | `.github/workflows/deploy.yml` |
+| Infrastructure (App Service plan + Web App) | `infra/main.bicep` |
+| One-time Azure/OIDC bootstrap | `infra/azure-setup.sh` |
+
+### One-time setup
+
+Run the bootstrap **locally**, where you're logged in to Azure (it's the only
+step that needs your Azure credentials):
+
+```bash
+az login
+az account set --subscription "<your-subscription>"
+./infra/azure-setup.sh --gh     # provisions OIDC + RG, sets GitHub secrets/vars via gh
+```
+
+It creates a resource group, an Entra ID app + service principal with a GitHub
+OIDC federated credential (scoped to this repo's `production` environment), and
+prints/sets the values the workflow needs:
+
+- **Secrets:** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `JWT_SECRET`
+- **Variables:** `AZURE_RESOURCE_GROUP`, `AZURE_WEBAPP_NAME`, `AZURE_LOCATION`
+
+Then push to `main` (or run the **Deploy to Azure** workflow manually). After the
+first deploy, make the GHCR package public (GitHub → Packages → `settlers` →
+visibility → Public) so App Service can pull it — or keep it private and pass
+`registryUsername`/`registryPassword` to the Bicep.
+
+### What gets provisioned
+
+- A Linux **App Service for Containers** (B1 plan) with **WebSockets enabled**,
+  HTTPS-only, `Always On`, and a `/health` health check.
+- `WEBSITES_PORT=4000` so App Service routes to the container.
+- SQLite stored at `/home/data/settlers.db` on App Service's **persistent
+  `/home` storage**, so games and accounts survive restarts and redeploys.
+
+> ⚠️ **Single instance only.** SQLite is not safe for concurrent writers, so do
+> not scale this App Service out beyond one instance. To run multiple instances
+> or use autoscale, migrate persistence to a managed database (e.g. Azure
+> Database for PostgreSQL) — a natural next step if you outgrow a single node.
+
 ## Other production options
 
 - **Static + separate API:** `npm run build`, serve `client/dist` from any static
