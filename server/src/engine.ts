@@ -25,6 +25,13 @@ export interface InternalGame {
   seed: number;
   /** Total setup placements made (used to drive snake order + termination). */
   setupPlaced: number;
+  /** Bot-only: trade state for the current bot's turn (server-side only). */
+  botTrade?: {
+    color: PlayerColor;
+    tradeId: string;
+    ticksLeft: number;
+    phase: "open" | "done";
+  } | null;
 }
 
 export interface ActionResult {
@@ -89,7 +96,7 @@ export function createGame(
     updatedAt: Date.now(),
   };
 
-  return { state, devDeck, seed, setupPlaced: 0 };
+  return { state, devDeck, seed, setupPlaced: 0, botTrade: null };
 }
 
 // ---- Helpers ----

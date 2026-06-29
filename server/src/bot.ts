@@ -10,9 +10,14 @@ import {
   type PlayerState,
   type Resource,
   type ResourceCounts,
+  type TradeOffer,
   type ClientMessage,
 } from "@settlers/shared";
 import { applyAction, type InternalGame } from "./engine.js";
+
+// How many scheduler ticks a bot keeps an offer open before giving up (gives
+// humans / other bots a few seconds to accept).
+const BOT_TRADE_WAIT_TICKS = 4;
 
 // Number-token "pip" weight: how likely a hex is to produce (6/8 best).
 function pip(n: number | null): number {
@@ -21,22 +26,76 @@ function pip(n: number | null): number {
 }
 
 function canAfford(p: PlayerState, cost: Partial<ResourceCounts>): boolean {
-  return Object.entries(cost).every(
-    ([r, n]) => p.resources[r as Resource] >= (n ?? 0)
+  return RESOURCES.every((r) => p.resources[r] >= (cost[r] ?? 0));
+}
+
+// Cards still needed to afford a cost (0 once affordable).
+function deficit(res: ResourceCounts, cost: Partial<ResourceCounts>): number {
+  return RESOURCES.reduce((s, r) => s + Math.max(0, (cost[r] ?? 0) - res[r]), 0);
+}
+
+function applyDelta(
+  res: ResourceCounts,
+  give: Partial<ResourceCounts>,
+  recv: Partial<ResourceCounts>
+): ResourceCounts {
+  const out = { ...res };
+  for (const r of RESOURCES) out[r] = out[r] - (give[r] ?? 0) + (recv[r] ?? 0);
+  return out;
+}
+
+// The build a bot is working toward (a city if it can upgrade, else a settlement).
+function goalCost(game: InternalGame, p: PlayerState): Partial<ResourceCounts> {
+  const hasSettlement = game.state.buildings.some(
+    (b) => b.owner === p.color && b.kind === "settlement"
   );
+  return hasSettlement ? BUILD_COSTS.city : BUILD_COSTS.settlement;
+}
+
+function byColor(state: GameState, color: PlayerColor): PlayerState {
+  return state.players.find((p) => p.color === color)!;
 }
 
 function botPlayer(state: GameState): PlayerState | null {
   return state.players[state.currentPlayerIndex] ?? null;
 }
 
-// Is a bot currently on the clock (its turn, or it owes a discard)?
+// Would this bot benefit from accepting trade `t`? The accepter gives what the
+// offerer wants (t.receive) and gets what the offerer gives (t.give). Accept
+// only if affordable and it moves the bot strictly closer to its goal build —
+// so a bot is never tricked into giving away a resource it needs.
+function wantsTrade(game: InternalGame, p: PlayerState, t: TradeOffer): boolean {
+  if (t.from === p.color) return false;
+  if (t.to && t.to !== p.color) return false;
+  const give = t.receive;
+  const recv = t.give;
+  if (!canAfford(p, give)) return false;
+  const cost = goalCost(game, p);
+  const before = deficit(p.resources, cost);
+  const after = deficit(applyDelta(p.resources, give, recv), cost);
+  return after < before;
+}
+
+function findBotAccept(game: InternalGame): { color: PlayerColor; tradeId: string } | null {
+  const s = game.state;
+  if (s.phase !== "main") return null;
+  for (const t of s.pendingTrades) {
+    for (const p of s.players) {
+      if (p.isBot && wantsTrade(game, p, t)) return { color: p.color, tradeId: t.id };
+    }
+  }
+  return null;
+}
+
+// Is a bot currently on the clock (its turn, a discard it owes, or a pending
+// trade it wants to accept)?
 export function botShouldAct(game: InternalGame): boolean {
   const s = game.state;
   if (s.phase === "finished" || s.phase === "lobby") return false;
   if (s.phase === "discard") {
     return s.players.some((p) => p.isBot && (s.pendingDiscards[p.color] ?? 0) > 0);
   }
+  if (findBotAccept(game)) return true;
   const cur = botPlayer(s);
   return !!cur && cur.isBot;
 }
@@ -50,9 +109,12 @@ export function botStep(game: InternalGame): boolean {
     const debtor = s.players.find(
       (p) => p.isBot && (s.pendingDiscards[p.color] ?? 0) > 0
     );
-    if (debtor) return botDiscard(game, debtor);
-    return false;
+    return debtor ? botDiscard(game, debtor) : false;
   }
+
+  // Any bot may accept a beneficial trade, even during another player's turn.
+  const acc = findBotAccept(game);
+  if (acc) return act(game, acc.color, { type: "accept_trade", tradeId: acc.tradeId });
 
   const cur = botPlayer(s);
   if (!cur || !cur.isBot) return false;
@@ -114,7 +176,6 @@ function botSetupRoad(game: InternalGame, color: PlayerColor): boolean {
 
 function botMoveRobber(game: InternalGame, color: PlayerColor): boolean {
   const s = game.state;
-  // Pick the hex (not desert/current) bordering the most opponent buildings.
   let bestHex = -1;
   let bestCount = -1;
   for (const hex of s.board.hexes) {
@@ -131,16 +192,14 @@ function botMoveRobber(game: InternalGame, color: PlayerColor): boolean {
   }
   if (bestHex < 0) bestHex = s.board.hexes.findIndex((h) => h.id !== s.board.robberHexId);
 
-  // Choose a victim with cards on that hex, if any.
   const victims = new Set<PlayerColor>();
   for (const b of s.buildings) {
     if (b.owner === color) continue;
     if (s.board.vertices[b.vertexId].hexIds.includes(bestHex)) victims.add(b.owner);
   }
-  const withCards = [...victims].filter((c) => {
-    const p = s.players.find((pl) => pl.color === c)!;
-    return RESOURCES.some((r) => p.resources[r] > 0);
-  });
+  const withCards = [...victims].filter((c) =>
+    RESOURCES.some((r) => byColor(s, c).resources[r] > 0)
+  );
   const stealFrom = withCards[0] ?? null;
   return act(game, color, { type: "move_robber", hexId: bestHex, stealFrom });
 }
@@ -150,10 +209,7 @@ function botMoveRobber(game: InternalGame, color: PlayerColor): boolean {
 function botDiscard(game: InternalGame, p: PlayerState): boolean {
   const owed = game.state.pendingDiscards[p.color] ?? 0;
   if (owed <= 0) return false;
-  // Drop from the most abundant resources first.
-  const counts = RESOURCES.map((r) => ({ r, n: p.resources[r] })).sort(
-    (a, b) => b.n - a.n
-  );
+  const counts = RESOURCES.map((r) => ({ r, n: p.resources[r] })).sort((a, b) => b.n - a.n);
   const out: Partial<ResourceCounts> = {};
   let left = owed;
   for (const { r, n } of counts) {
@@ -167,11 +223,72 @@ function botDiscard(game: InternalGame, p: PlayerState): boolean {
   return act(game, p.color, { type: "discard", resources: out });
 }
 
-// ---- Main phase: build greedily, else end the turn ----
+// ---- Trading ----
+
+// Offer one surplus card for one needed card when close to the goal build.
+function chooseOffer(
+  game: InternalGame,
+  me: PlayerState
+): { give: Partial<ResourceCounts>; receive: Partial<ResourceCounts> } | null {
+  const cost = goalCost(game, me);
+  if (deficit(me.resources, cost) > 2) return null; // too far off to bother trading
+  const needed = RESOURCES.find((r) => (cost[r] ?? 0) > me.resources[r]);
+  if (!needed) return null;
+  const surplus = RESOURCES.filter(
+    (r) => r !== needed && me.resources[r] > (cost[r] ?? 0) && me.resources[r] >= 1
+  ).sort((a, b) => me.resources[b] - me.resources[a])[0];
+  if (!surplus) return null;
+  return { give: { [surplus]: 1 }, receive: { [needed]: 1 } };
+}
+
+// Returns "acted" if it made a trade move (offer/wait), "continue" otherwise.
+function handleBotTrade(
+  game: InternalGame,
+  color: PlayerColor,
+  me: PlayerState
+): "acted" | "continue" {
+  const s = game.state;
+  const bt = game.botTrade;
+
+  if (bt && bt.color === color) {
+    if (bt.phase === "done") return "continue";
+    const stillOpen = s.pendingTrades.some((t) => t.id === bt.tradeId);
+    if (stillOpen && bt.ticksLeft > 0) {
+      bt.ticksLeft -= 1;
+      return "acted"; // wait for someone to accept
+    }
+    if (stillOpen) act(game, color, { type: "cancel_trade", tradeId: bt.tradeId });
+    bt.phase = "done"; // don't re-offer this turn
+    return "continue";
+  }
+
+  const offer = chooseOffer(game, me);
+  if (
+    offer &&
+    act(game, color, { type: "offer_trade", to: null, give: offer.give, receive: offer.receive })
+  ) {
+    const mine = [...s.pendingTrades].reverse().find((t) => t.from === color);
+    game.botTrade = {
+      color,
+      tradeId: mine ? mine.id : "",
+      ticksLeft: BOT_TRADE_WAIT_TICKS,
+      phase: "open",
+    };
+    return "acted";
+  }
+  // Mark trading as done for this turn so we don't retry every tick.
+  game.botTrade = { color, tradeId: "", ticksLeft: 0, phase: "done" };
+  return "continue";
+}
+
+// ---- Main phase: build, trade toward a build, else end the turn ----
 
 function botMain(game: InternalGame, color: PlayerColor): boolean {
   const s = game.state;
-  const me = s.players.find((p) => p.color === color)!;
+  const me = byColor(s, color);
+
+  // Drop any trade state left over from a previous turn.
+  if (game.botTrade && game.botTrade.color !== color) game.botTrade = null;
 
   // 1. Upgrade a settlement to a city.
   if (canAfford(me, BUILD_COSTS.city)) {
@@ -187,16 +304,19 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
       if (act(game, color, { type: "build_settlement", vertexId })) return true;
     }
   }
-  // 3. Extend the road network (sometimes), to open new spots.
+  // 3. Trade toward the goal build (offer once, wait briefly for a taker).
+  if (handleBotTrade(game, color, me) === "acted") return true;
+  // 4. Extend the road network.
   if (canAfford(me, BUILD_COSTS.road)) {
     for (const e of s.board.edges) {
       if (act(game, color, { type: "build_road", edgeId: e.id })) return true;
     }
   }
-  // 4. Otherwise bank a development card if flush.
+  // 5. Otherwise bank a development card if flush.
   if (s.devDeckCount > 0 && canAfford(me, BUILD_COSTS.dev_card)) {
     if (act(game, color, { type: "buy_dev_card" })) return true;
   }
-  // 5. Nothing useful to do: end the turn.
+  // 6. Nothing useful to do: end the turn.
+  game.botTrade = null;
   return act(game, color, { type: "end_turn" });
 }
