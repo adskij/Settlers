@@ -193,7 +193,59 @@ input, select {
 
 /* ---- Your panel: VP + resource cards + dev cards ---- */
 .me-panel { display: flex; flex-direction: column; gap: 8px; }
-.me-top { display: flex; align-items: center; gap: 8px; }
+.me-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.costs-btn { flex: 0 0 auto; }
+
+/* ---- Modal (building costs) ---- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0,0,0,0.55); display: grid; place-items: center;
+  padding: 20px; padding-bottom: max(20px, env(safe-area-inset-bottom));
+}
+.modal {
+  background: var(--card); border-radius: 14px; width: 100%; max-width: 360px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.modal-head h3 { margin: 0; font-size: 18px; }
+.cost-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cost-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--bg-2); border-radius: 10px; padding: 10px 12px;
+}
+.cost-name { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.cost-name .cost-emoji { font-size: 20px; }
+.cost-note { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+.cost-res { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.cost-chip {
+  display: inline-flex; align-items: center; gap: 1px;
+  background: var(--card-2); border-radius: 7px; padding: 4px 7px; font-size: 16px;
+}
+.cost-chip em { font-style: normal; font-size: 12px; font-weight: 800; }
+.cost-foot { margin: 12px 0 0; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* ---- Awards: Longest Road & Largest Army ---- */
+.awards { display: flex; gap: 6px; }
+.award {
+  flex: 1 1 0; display: flex; align-items: center; gap: 7px;
+  background: var(--card); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; padding: 6px 9px; min-width: 0;
+}
+.award.held { border-color: rgba(240,168,48,0.5); }
+.award.mine { background: rgba(240,168,48,0.14); border-color: var(--accent); }
+.award-ic { font-size: 18px; flex: 0 0 auto; }
+.award-body { display: flex; flex-direction: column; min-width: 0; }
+.award-lbl { font-size: 11px; color: var(--muted); line-height: 1.1; }
+.award-who {
+  font-size: 13px; font-weight: 700; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.award-vp {
+  margin-left: auto; flex: 0 0 auto; font-size: 12px; font-weight: 800;
+  color: var(--accent); background: rgba(240,168,48,0.15);
+  border-radius: 999px; padding: 1px 7px;
+}
 
 .vp-badge {
   display: inline-flex; align-items: baseline; gap: 5px;

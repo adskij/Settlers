@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  BUILD_COSTS,
   RESOURCES,
   VICTORY_POINTS_TO_WIN,
   type ClientMessage,
@@ -8,6 +9,7 @@ import {
   type PlayerColor,
   type PlayerState,
   type Resource,
+  type ResourceCounts,
 } from "@settlers/shared";
 import type { BuildMode } from "./GameScreen.js";
 
@@ -94,6 +96,7 @@ export function Hud({
   const me = state.players.find((p) => p.color === you) ?? null;
   const isYourTurn = state.players[state.currentPlayerIndex]?.color === you;
   const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev">("none");
+  const [showCosts, setShowCosts] = useState(false);
 
   useEffect(() => {
     if (!error) return;
@@ -106,6 +109,7 @@ export function Hud({
   return (
     <div className="hud">
       {error && <div className="toast error" onClick={clearError}>{error}</div>}
+      {showCosts && <CostsModal onClose={() => setShowCosts(false)} />}
 
       {/* Players strip */}
       <div className="players-strip">
@@ -128,6 +132,9 @@ export function Hud({
           </div>
         ))}
       </div>
+
+      {/* Special awards: Longest Road & Largest Army (each worth 2 VP) */}
+      <AwardsBar state={state} you={you} />
 
       {/* Pending trade offers */}
       {state.pendingTrades.length > 0 && (
@@ -169,6 +176,13 @@ export function Hud({
               <span className="vp-of">/ {VICTORY_POINTS_TO_WIN}</span>
               <span className="vp-text">Victory Points</span>
             </div>
+            <button
+              className="btn sm costs-btn"
+              onClick={() => setShowCosts(true)}
+              title="Show building costs"
+            >
+              📋 Costs
+            </button>
           </div>
 
           <div className="res-cards">
@@ -298,6 +312,79 @@ function PromptText({
   if (state.dice)
     return <span>Rolled {state.dice[0] + state.dice[1]} 🎲 ({state.dice[0]}+{state.dice[1]})</span>;
   return <span>{isYourTurn ? "Build, trade, or end your turn." : "Opponent's turn."}</span>;
+}
+
+// Longest Road & Largest Army holders (each +2 VP). Largest Army also shows
+// the leading knight count so progress toward it is visible.
+function AwardsBar({ state, you }: { state: GameState; you: PlayerColor | null }) {
+  const nameOf = (c: PlayerColor) => state.players.find((p) => p.color === c)?.name ?? c;
+  const topKnights = Math.max(0, ...state.players.map((p) => p.playedKnights));
+  const armyHolder = state.largestArmyOwner;
+  const roadHolder = state.longestRoadOwner;
+  return (
+    <div className="awards">
+      <div className={`award ${roadHolder ? "held" : ""} ${roadHolder === you ? "mine" : ""}`}>
+        <span className="award-ic">🛣️</span>
+        <span className="award-body">
+          <span className="award-lbl">Longest Road</span>
+          <span className="award-who">{roadHolder ? nameOf(roadHolder) : "unclaimed"}</span>
+        </span>
+        <span className="award-vp">+2</span>
+      </div>
+      <div className={`award ${armyHolder ? "held" : ""} ${armyHolder === you ? "mine" : ""}`}>
+        <span className="award-ic">⚔️</span>
+        <span className="award-body">
+          <span className="award-lbl">Largest Army</span>
+          <span className="award-who">
+            {armyHolder ? `${nameOf(armyHolder)} · ${topKnights}🛡️` : "unclaimed"}
+          </span>
+        </span>
+        <span className="award-vp">+2</span>
+      </div>
+    </div>
+  );
+}
+
+const COST_ROWS: { key: keyof typeof BUILD_COSTS; icon: string; label: string; note?: string }[] = [
+  { key: "road", icon: "🛣️", label: "Road", note: "Longest Road = 2 VP" },
+  { key: "settlement", icon: "🏠", label: "Settlement", note: "1 VP" },
+  { key: "city", icon: "🏙️", label: "City", note: "2 VP (upgrades a settlement)" },
+  { key: "dev_card", icon: "🃏", label: "Development card", note: "Knight, VP, and more" },
+];
+
+function CostsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal cost-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Building costs">
+        <div className="modal-head">
+          <h3>Building costs</h3>
+          <button className="link-btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <ul className="cost-list">
+          {COST_ROWS.map((row) => (
+            <li key={row.key} className="cost-row">
+              <span className="cost-name">
+                <span className="cost-emoji">{row.icon}</span>
+                <span>
+                  {row.label}
+                  {row.note && <span className="cost-note">{row.note}</span>}
+                </span>
+              </span>
+              <span className="cost-res">
+                {RESOURCES.filter((r) => (BUILD_COSTS[row.key] as Partial<ResourceCounts>)[r]).map((r) => (
+                  <span key={r} className="cost-chip" title={r}>
+                    {RES_ICON[r]}
+                    <em>×{(BUILD_COSTS[row.key] as Partial<ResourceCounts>)[r]}</em>
+                  </span>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="cost-foot">First to {VICTORY_POINTS_TO_WIN} victory points wins.</p>
+      </div>
+    </div>
+  );
 }
 
 function ToolBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
