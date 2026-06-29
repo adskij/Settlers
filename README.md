@@ -195,7 +195,8 @@ visibility → Public) so App Service can pull it — or keep it private and pas
 ## Known simplifications / next steps
 
 - AI bots are intentionally simple (greedy: best-spot settlements/cities, opportunistic
-  roads, dev-card buys). They don't play knights/dev cards or initiate trades — room to grow.
+  roads, dev-card buys). They offer and accept trades that move them toward their next
+  build, but don't yet play knights/dev cards — room to grow.
 - Player-to-player trading is a simple open offer + accept (no counter-offers yet).
 - Dev cards limited to one play per turn (per the rules); deck reshuffling not needed (single deck).
 - Spectators, chat, game history, and rematch are not implemented.
