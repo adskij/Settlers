@@ -20,6 +20,9 @@
 
 html, body, #root {
   height: 100%;
+  /* Track the *visible* viewport on iOS so the dynamic address bar can't
+     clip the HUD at the bottom. Falls back to 100% on older browsers. */
+  height: 100dvh;
   margin: 0;
 }
 
@@ -146,13 +149,24 @@ input, select {
 .board-area {
   flex: 1 1 auto;
   min-height: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden; /* never let the board bleed into the HUD */
   background: radial-gradient(circle at 50% 40%, #1a4a5c, #0c2029);
   position: relative;
 }
-.board-wrap { width: 100%; height: 100%; position: relative; }
-.board-svg { width: 100%; height: 100%; touch-action: manipulation; }
+.board-wrap {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Fit the board inside its box in BOTH dimensions (min-height:0 makes the
+   flex height definite so the SVG scales down instead of overflowing). */
+.board-svg { max-width: 100%; max-height: 100%; width: 100%; height: 100%; touch-action: manipulation; }
 
 .vertex-clickable, .edge-clickable, .hex-clickable { cursor: pointer; }
 .vertex-clickable:active { fill-opacity: 1; }
@@ -173,6 +187,9 @@ input, select {
   display: flex; flex-direction: column; gap: 8px;
   max-height: 52vh; overflow-y: auto;
 }
+/* The HUD scrolls as a whole; its sections must keep their height rather than
+   getting squished by the flex column when content overflows. */
+.hud > * { flex-shrink: 0; }
 .players-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 .player-card {
   flex: 0 0 auto; min-width: 116px;
