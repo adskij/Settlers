@@ -1,0 +1,27 @@
+name: Security Review
+
+# AI security-review agent: on every pull request it analyzes the diff for
+# vulnerabilities and posts its findings as comments on the PR.
+# Requires an ANTHROPIC_API_KEY repository secret (the agent calls the Claude API).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - uses: anthropics/claude-code-security-review@main
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
