@@ -27,6 +27,16 @@ export function GameScreen({
   const phaseKey = `${sock.state?.phase}:${sock.state?.currentPlayerIndex}`;
   useEffect(() => setBuildMode(null), [phaseKey]);
 
+  // After playing Road Building (or any free-road effect), drop straight into
+  // road-placement mode so the player can just tap the board.
+  const youAreCurrent =
+    !!sock.state &&
+    sock.state.players[sock.state.currentPlayerIndex]?.color === sock.you;
+  const freeRoads = sock.state?.freeRoadsRemaining ?? 0;
+  useEffect(() => {
+    if (freeRoads > 0 && youAreCurrent) setBuildMode("road");
+  }, [freeRoads, youAreCurrent]);
+
   // While the game hasn't started, poll lobby info over REST.
   const refreshLobby = useCallback(() => {
     api

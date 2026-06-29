@@ -251,6 +251,11 @@ input, select {
 }
 
 .prompt-bar { font-size: 14px; color: var(--text); min-height: 20px; }
+.prompt-hot {
+  display: inline-block; background: rgba(240,168,48,0.18);
+  border: 1px solid var(--accent); color: var(--accent);
+  padding: 5px 10px; border-radius: 8px; font-weight: 700;
+}
 .action-bar { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .panel { background: var(--card); border-radius: 10px; padding: 10px; }

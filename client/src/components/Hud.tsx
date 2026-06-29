@@ -250,7 +250,7 @@ export function Hud({
             <OfferPanel send={send} />
           )}
           {isYourTurn && state.phase === "main" && panel === "dev" && me && (
-            <DevPanel me={me} send={send} />
+            <DevPanel me={me} send={send} onPlayed={() => setPanel("none")} />
           )}
         </>
       )}
@@ -276,6 +276,13 @@ function PromptText({
 }) {
   if (state.phase === "finished")
     return <span>🏆 {state.winner} wins the game!</span>;
+  if (isYourTurn && state.phase === "main" && state.freeRoadsRemaining > 0)
+    return (
+      <span className="prompt-hot">
+        🛣️ Road Building: place {state.freeRoadsRemaining} free road
+        {state.freeRoadsRemaining > 1 ? "s" : ""} — tap a highlighted edge.
+      </span>
+    );
   if (state.phase === "setup") {
     if (!isYourTurn) return <span>Setup: waiting for {state.players[state.currentPlayerIndex]?.name}…</span>;
     return <span>Setup: tap a spot to place your {state.setupStep}.</span>;
@@ -410,24 +417,38 @@ function OfferPanel({ send }: { send: (msg: ClientMessage) => void }) {
   );
 }
 
-function DevPanel({ me, send }: { me: PlayerState; send: (msg: ClientMessage) => void }) {
+function DevPanel({
+  me,
+  send,
+  onPlayed,
+}: {
+  me: PlayerState;
+  send: (msg: ClientMessage) => void;
+  onPlayed: () => void;
+}) {
   const has = (k: string) => me.devCards.includes(k as any);
   const [yop, setYop] = useState<[Resource, Resource]>(["brick", "ore"]);
   const [mono, setMono] = useState<Resource>("brick");
+  // Send the play, then close the panel so the board is visible for any
+  // follow-up placement (e.g. Road Building's two free roads).
+  const play = (msg: ClientMessage) => {
+    send(msg);
+    onPlayed();
+  };
   return (
     <div className="panel dev-panel">
       {has("knight") && (
-        <button className="btn" onClick={() => send({ type: "play_knight" })}>⚔️ Knight</button>
+        <button className="btn" onClick={() => play({ type: "play_knight" })}>⚔️ Knight</button>
       )}
       {has("road_building") && (
-        <button className="btn" onClick={() => send({ type: "play_road_building" })}>🛣️ Road Building</button>
+        <button className="btn" onClick={() => play({ type: "play_road_building" })}>🛣️ Road Building</button>
       )}
       {has("monopoly") && (
         <div className="row">
           <select value={mono} onChange={(e) => setMono(e.target.value as Resource)}>
             {RESOURCES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-          <button className="btn" onClick={() => send({ type: "play_monopoly", resource: mono })}>Monopoly</button>
+          <button className="btn" onClick={() => play({ type: "play_monopoly", resource: mono })}>Monopoly</button>
         </div>
       )}
       {has("year_of_plenty") && (
@@ -438,7 +459,7 @@ function DevPanel({ me, send }: { me: PlayerState; send: (msg: ClientMessage) =>
           <select value={yop[1]} onChange={(e) => setYop([yop[0], e.target.value as Resource])}>
             {RESOURCES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-          <button className="btn" onClick={() => send({ type: "play_year_of_plenty", resources: yop })}>Year of Plenty</button>
+          <button className="btn" onClick={() => play({ type: "play_year_of_plenty", resources: yop })}>Year of Plenty</button>
         </div>
       )}
       {!has("knight") && !has("road_building") && !has("monopoly") && !has("year_of_plenty") && (
