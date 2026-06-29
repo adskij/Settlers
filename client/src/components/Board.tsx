@@ -3,17 +3,47 @@ import type {
   ClientMessage,
   GameState,
   PlayerColor,
+  PortKind,
   Terrain,
 } from "@settlers/shared";
 import type { BuildMode } from "./GameScreen.js";
 
-const TERRAIN_COLOR: Record<Terrain, string> = {
-  lumber: "#2f6b3a",
-  wool: "#8cc152",
-  grain: "#e8c34a",
+// Per-terrain [light, base, dark] for a subtle radial "relief" gradient.
+const TERRAIN_GRAD: Record<Terrain, [string, string]> = {
+  lumber: ["#3f8a4c", "#234f29"],
+  wool: ["#a7da6c", "#6da23c"],
+  grain: ["#f4d877", "#c79f2e"],
+  brick: ["#cc6a40", "#8c3d1f"],
+  ore: ["#9aa6b4", "#5d6976"],
+  desert: ["#e8dab4", "#c2ac7c"],
+};
+
+// Faint motif drawn behind each tile's number token.
+const TERRAIN_GLYPH: Record<Terrain, string> = {
+  lumber: "🌲",
+  wool: "🐑",
+  grain: "🌾",
+  brick: "🧱",
+  ore: "⛰️",
+  desert: "🏜️",
+};
+
+const PORT_COLOR: Record<PortKind, string> = {
   brick: "#b5562f",
-  ore: "#7d8a99",
-  desert: "#d9c79a",
+  lumber: "#2f6b3a",
+  wool: "#7fae3f",
+  grain: "#e0b62f",
+  ore: "#6f7c8b",
+  any: "#3a7d8c",
+};
+
+const PORT_ICON: Record<PortKind, string> = {
+  brick: "🧱",
+  lumber: "🌲",
+  wool: "🐑",
+  grain: "🌾",
+  ore: "⛰️",
+  any: "⚓",
 };
 
 const PLAYER_FILL: Record<PlayerColor, string> = {
@@ -45,13 +75,38 @@ export function Board({
   const view = useMemo(() => {
     const xs = board.vertices.map((v) => v.pos.x);
     const ys = board.vertices.map((v) => v.pos.y);
-    const pad = 6;
+    const pad = 9; // extra room for port signs hanging off the coast
     const minX = Math.min(...xs) - pad;
     const minY = Math.min(...ys) - pad;
     const w = Math.max(...xs) - minX + pad;
     const h = Math.max(...ys) - minY + pad;
     return { minX, minY, w, h };
   }, [board]);
+
+  const center = useMemo(() => {
+    const n = board.vertices.length;
+    const sx = board.vertices.reduce((s, v) => s + v.pos.x, 0);
+    const sy = board.vertices.reduce((s, v) => s + v.pos.y, 0);
+    return { x: sx / n, y: sy / n };
+  }, [board]);
+
+  // One marker per coastal port edge (both endpoints carry the same port).
+  const portEdges = useMemo(() => {
+    const out: { id: number; kind: PortKind; mid: { x: number; y: number }; sign: { x: number; y: number }; v1: { x: number; y: number }; v2: { x: number; y: number } }[] = [];
+    for (const e of board.edges) {
+      const a = board.vertices[e.v1];
+      const b = board.vertices[e.v2];
+      if (a.port && b.port && a.port === b.port) {
+        const mid = { x: (a.pos.x + b.pos.x) / 2, y: (a.pos.y + b.pos.y) / 2 };
+        const dx = mid.x - center.x;
+        const dy = mid.y - center.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const sign = { x: mid.x + (dx / len) * 4, y: mid.y + (dy / len) * 4 };
+        out.push({ id: e.id, kind: a.port, mid, sign, v1: a.pos, v2: b.pos });
+      }
+    }
+    return out;
+  }, [board, center]);
 
   // --- interaction handlers ---
   const onVertex = (vertexId: number) => {
@@ -116,6 +171,24 @@ export function Board({
         viewBox={`${view.minX} ${view.minY} ${view.w} ${view.h}`}
         preserveAspectRatio="xMidYMid meet"
       >
+        <defs>
+          {(Object.keys(TERRAIN_GRAD) as Terrain[]).map((t) => (
+            <radialGradient key={t} id={`tg-${t}`} cx="0.5" cy="0.42" r="0.65">
+              <stop offset="0%" stopColor={TERRAIN_GRAD[t][0]} />
+              <stop offset="100%" stopColor={TERRAIN_GRAD[t][1]} />
+            </radialGradient>
+          ))}
+          {/* Subtle grain overlay for a textured, non-flat surface. */}
+          <pattern id="tile-grain" width="1.4" height="1.4" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
+            <rect width="1.4" height="1.4" fill="transparent" />
+            <circle cx="0.35" cy="0.35" r="0.16" fill="#000" opacity="0.05" />
+            <circle cx="1.0" cy="1.0" r="0.12" fill="#fff" opacity="0.05" />
+          </pattern>
+          <filter id="piece-shadow" x="-40%" y="-40%" width="180%" height="180%">
+            <feDropShadow dx="0" dy="0.25" stdDeviation="0.35" floodColor="#000" floodOpacity="0.4" />
+          </filter>
+        </defs>
+
         {/* Hexes */}
         {board.hexes.map((hex) => {
           const pts = hex.vertexIds
@@ -126,62 +199,71 @@ export function Board({
             <g key={hex.id} onClick={() => onHex(hex.id)}>
               <polygon
                 points={pts}
-                fill={TERRAIN_COLOR[hex.terrain]}
-                stroke="#11212b"
-                strokeWidth={0.3}
+                fill={`url(#tg-${hex.terrain})`}
+                stroke="#0f2a17"
+                strokeWidth={0.35}
+                strokeLinejoin="round"
                 className={hexActive ? "hex-clickable" : ""}
               />
-              {hex.number != null && (
-                <g>
-                  <circle
-                    cx={hex.center.x}
-                    cy={hex.center.y}
-                    r={2.6}
-                    fill="#f5efd9"
-                    stroke="#11212b"
-                    strokeWidth={0.2}
-                  />
-                  <text
-                    x={hex.center.x}
-                    y={hex.center.y}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={2.6}
-                    fontWeight={700}
-                    fill={hex.number === 6 || hex.number === 8 ? "#c0392b" : "#222"}
-                  >
-                    {hex.number}
-                  </text>
-                </g>
+              <polygon points={pts} fill="url(#tile-grain)" pointerEvents="none" />
+              {/* Faint terrain motif */}
+              <text
+                x={hex.center.x}
+                y={hex.center.y}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={6.5}
+                opacity={0.18}
+                pointerEvents="none"
+              >
+                {TERRAIN_GLYPH[hex.terrain]}
+              </text>
+              {hex.number != null && hex.id !== board.robberHexId && (
+                <NumberToken cx={hex.center.x} cy={hex.center.y} n={hex.number} />
               )}
               {hex.id === board.robberHexId && (
-                <circle
-                  cx={hex.center.x}
-                  cy={hex.center.y - 4}
-                  r={1.6}
-                  fill="#111"
-                  opacity={0.85}
-                />
+                <g pointerEvents="none" filter="url(#piece-shadow)">
+                  <ellipse cx={hex.center.x} cy={hex.center.y + 2.4} rx={1.7} ry={2.4} fill="#2b2b30" />
+                  <circle cx={hex.center.x} cy={hex.center.y - 0.4} r={1.3} fill="#2b2b30" />
+                </g>
               )}
             </g>
           );
         })}
 
-        {/* Ports */}
-        {board.vertices
-          .filter((v) => v.port)
-          .map((v) => (
-            <text
-              key={`port-${v.id}`}
-              x={v.pos.x}
-              y={v.pos.y - 2}
-              textAnchor="middle"
-              fontSize={1.8}
-              fill="#0d2430"
-            >
-              {v.port === "any" ? "3:1" : `2:1 ${v.port![0].toUpperCase()}`}
+        {/* Ports: dock lines + a clear colored sign */}
+        {portEdges.map((p) => (
+          <g key={`port-${p.id}`} pointerEvents="none">
+            <line x1={p.sign.x} y1={p.sign.y} x2={p.v1.x} y2={p.v1.y} stroke="#6b4f2a" strokeWidth={0.45} opacity={0.85} />
+            <line x1={p.sign.x} y1={p.sign.y} x2={p.v2.x} y2={p.v2.y} stroke="#6b4f2a" strokeWidth={0.45} opacity={0.85} />
+            <g filter="url(#piece-shadow)">
+              <rect
+                x={p.sign.x - 2.6}
+                y={p.sign.y - 2.6}
+                width={5.2}
+                height={5.2}
+                rx={1.1}
+                fill="#f5ead0"
+                stroke={PORT_COLOR[p.kind]}
+                strokeWidth={0.7}
+              />
+            </g>
+            <text x={p.sign.x} y={p.sign.y - 0.7} textAnchor="middle" dominantBaseline="central" fontSize={2.4}>
+              {PORT_ICON[p.kind]}
             </text>
-          ))}
+            <text
+              x={p.sign.x}
+              y={p.sign.y + 1.5}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={1.7}
+              fontWeight={800}
+              fill={PORT_COLOR[p.kind]}
+            >
+              {p.kind === "any" ? "3:1" : "2:1"}
+            </text>
+          </g>
+        ))}
 
         {/* Edges (roads + clickable slots) */}
         {board.edges.map((e) => {
@@ -190,16 +272,10 @@ export function Board({
           const road = state.roads.find((r) => r.edgeId === e.id);
           if (road) {
             return (
-              <line
-                key={e.id}
-                x1={v1.x}
-                y1={v1.y}
-                x2={v2.x}
-                y2={v2.y}
-                stroke={PLAYER_FILL[road.owner]}
-                strokeWidth={1.4}
-                strokeLinecap="round"
-              />
+              <g key={e.id} pointerEvents="none">
+                <line x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} stroke="#11212b" strokeWidth={1.9} strokeLinecap="round" />
+                <line x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} stroke={PLAYER_FILL[road.owner]} strokeWidth={1.3} strokeLinecap="round" />
+              </g>
             );
           }
           return (
@@ -210,7 +286,7 @@ export function Board({
               x2={v2.x}
               y2={v2.y}
               stroke={edgeActive ? "#ffffff" : "transparent"}
-              strokeOpacity={edgeActive ? 0.5 : 0}
+              strokeOpacity={edgeActive ? 0.55 : 0}
               strokeWidth={edgeActive ? 1.2 : 2.4}
               strokeLinecap="round"
               className={edgeActive ? "edge-clickable" : "edge-hit"}
@@ -223,30 +299,30 @@ export function Board({
         {board.vertices.map((v) => {
           const b = state.buildings.find((bb) => bb.vertexId === v.id);
           if (b) {
-            return b.kind === "city" ? (
-              <rect
-                key={v.id}
-                x={v.pos.x - 1.6}
-                y={v.pos.y - 1.6}
-                width={3.2}
-                height={3.2}
-                rx={0.4}
-                fill={PLAYER_FILL[b.owner]}
-                stroke="#11212b"
-                strokeWidth={0.3}
-                onClick={() => onVertex(v.id)}
-              />
-            ) : (
-              <circle
-                key={v.id}
-                cx={v.pos.x}
-                cy={v.pos.y}
-                r={1.5}
-                fill={PLAYER_FILL[b.owner]}
-                stroke="#11212b"
-                strokeWidth={0.3}
-                onClick={() => onVertex(v.id)}
-              />
+            return (
+              <g key={v.id} filter="url(#piece-shadow)" onClick={() => onVertex(v.id)}>
+                {b.kind === "city" ? (
+                  <rect
+                    x={v.pos.x - 1.7}
+                    y={v.pos.y - 1.7}
+                    width={3.4}
+                    height={3.4}
+                    rx={0.5}
+                    fill={PLAYER_FILL[b.owner]}
+                    stroke="#11212b"
+                    strokeWidth={0.4}
+                  />
+                ) : (
+                  <circle
+                    cx={v.pos.x}
+                    cy={v.pos.y}
+                    r={1.6}
+                    fill={PLAYER_FILL[b.owner]}
+                    stroke="#11212b"
+                    strokeWidth={0.4}
+                  />
+                )}
+              </g>
             );
           }
           return (
@@ -254,9 +330,9 @@ export function Board({
               key={v.id}
               cx={v.pos.x}
               cy={v.pos.y}
-              r={vertexActive ? 1.4 : 1.6}
+              r={vertexActive ? 1.5 : 1.6}
               fill={vertexActive ? "#ffffff" : "transparent"}
-              fillOpacity={vertexActive ? 0.6 : 0}
+              fillOpacity={vertexActive ? 0.65 : 0}
               className={vertexActive ? "vertex-clickable" : "vertex-hit"}
               onClick={() => onVertex(v.id)}
             />
@@ -285,5 +361,33 @@ export function Board({
         </div>
       )}
     </div>
+  );
+}
+
+// Wooden number token with red highlight on the high-probability 6 & 8.
+function NumberToken({ cx, cy, n }: { cx: number; cy: number; n: number }) {
+  const hot = n === 6 || n === 8;
+  const pips = 6 - Math.abs(7 - n); // probability dots
+  return (
+    <g pointerEvents="none" filter="url(#piece-shadow)">
+      <circle cx={cx} cy={cy} r={2.7} fill="#f5efd9" stroke="#b79b6b" strokeWidth={0.3} />
+      <text
+        x={cx}
+        y={cy - 0.3}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={2.7}
+        fontWeight={800}
+        fill={hot ? "#c0392b" : "#2b2b2b"}
+      >
+        {n}
+      </text>
+      {/* probability pips */}
+      <g fill={hot ? "#c0392b" : "#6b6b6b"}>
+        {Array.from({ length: pips }).map((_, i) => (
+          <circle key={i} cx={cx - (pips - 1) * 0.25 + i * 0.5} cy={cy + 1.7} r={0.18} />
+        ))}
+      </g>
+    </g>
   );
 }

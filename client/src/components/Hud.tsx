@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   RESOURCES,
+  VICTORY_POINTS_TO_WIN,
   type ClientMessage,
+  type DevCardKind,
   type GameState,
   type PlayerColor,
   type PlayerState,
@@ -16,6 +18,33 @@ const RES_ICON: Record<Resource, string> = {
   grain: "🌾",
   ore: "⛰️",
 };
+
+const DEV_META: Record<DevCardKind, { icon: string; label: string }> = {
+  knight: { icon: "⚔️", label: "Knight" },
+  victory_point: { icon: "⭐", label: "Victory Pt" },
+  road_building: { icon: "🛣️", label: "Road Build" },
+  year_of_plenty: { icon: "🌾", label: "Year/Plenty" },
+  monopoly: { icon: "💰", label: "Monopoly" },
+};
+const DEV_ORDER: DevCardKind[] = [
+  "knight",
+  "victory_point",
+  "road_building",
+  "year_of_plenty",
+  "monopoly",
+];
+
+// Group the viewer's own dev cards (playable now vs. bought this turn).
+function devHand(me: PlayerState) {
+  const g: Partial<Record<DevCardKind, { playable: number; pending: number }>> = {};
+  const bump = (k: DevCardKind, key: "playable" | "pending") => {
+    (g[k] ??= { playable: 0, pending: 0 })[key]++;
+  };
+  for (const k of me.devCards) bump(k, "playable");
+  for (const k of me.newDevCards) bump(k, "pending");
+  for (let i = 0; i < me.victoryPointCards; i++) bump("victory_point", "playable");
+  return DEV_ORDER.filter((k) => g[k]).map((k) => ({ kind: k, ...g[k]! }));
+}
 
 // Public victory points (hidden VP cards are redacted server-side).
 function publicVP(state: GameState, color: PlayerColor): number {
@@ -130,17 +159,50 @@ export function Hud({
         </div>
       )}
 
-      {/* Your hand */}
+      {/* Your panel: victory points, resource cards, dev cards */}
       {me && (
-        <div className="hand">
-          {RESOURCES.map((r) => (
-            <span key={r} className="res-chip" title={r}>
-              {RES_ICON[r]} {me.resources[r]}
-            </span>
-          ))}
-          <span className="res-chip dev" title="development cards">
-            🃏 {me.devCards.length + me.newDevCards.length}
-          </span>
+        <div className="me-panel">
+          <div className="me-top">
+            <div className="vp-badge" title="Your victory points (incl. hidden cards)">
+              <span className="vp-star">★</span>
+              <span className="vp-count">{publicVP(state, me.color)}</span>
+              <span className="vp-of">/ {VICTORY_POINTS_TO_WIN}</span>
+              <span className="vp-text">Victory Points</span>
+            </div>
+          </div>
+
+          <div className="res-cards">
+            {RESOURCES.map((r) => (
+              <div key={r} className={`res-card res-${r}`} title={r}>
+                <span className="rc-icon">{RES_ICON[r]}</span>
+                <span className="rc-name">{r}</span>
+                <span className="rc-count">{me.resources[r]}</span>
+              </div>
+            ))}
+          </div>
+
+          {devHand(me).length > 0 && (
+            <div className="dev-hand">
+              {devHand(me).map((d) => (
+                <div
+                  key={d.kind}
+                  className={`dev-card-mini ${d.pending && !d.playable ? "pending" : ""}`}
+                  title={
+                    d.pending
+                      ? `${DEV_META[d.kind].label} — bought this turn (playable next turn)`
+                      : DEV_META[d.kind].label
+                  }
+                >
+                  <span className="dc-icon">{DEV_META[d.kind].icon}</span>
+                  <span className="dc-label">{DEV_META[d.kind].label}</span>
+                  {d.playable + d.pending > 1 && (
+                    <span className="dc-count">×{d.playable + d.pending}</span>
+                  )}
+                  {d.pending > 0 && <span className="dc-new">new</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
