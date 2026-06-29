@@ -92,8 +92,27 @@ function rankedVertices(state: GameState): number[] {
     .map((v) => v.id);
 }
 
+// Does this vertex still have an unused incident edge for the setup road?
+// (The setup road must connect to the settlement just placed, so a vertex
+// whose edges are all taken would strand the bot.)
+function hasFreeIncidentEdge(state: GameState, vertexId: number): boolean {
+  return state.board.edges.some(
+    (e) =>
+      (e.v1 === vertexId || e.v2 === vertexId) &&
+      !state.roads.some((r) => r.edgeId === e.id)
+  );
+}
+
 function botSetupSettlement(game: InternalGame, color: PlayerColor): boolean {
-  for (const vertexId of rankedVertices(game.state)) {
+  const s = game.state;
+  // Prefer high-pip vertices that also leave a free edge for the setup road,
+  // so the bot never strands itself with nowhere to place the road.
+  for (const vertexId of rankedVertices(s)) {
+    if (!hasFreeIncidentEdge(s, vertexId)) continue;
+    if (act(game, color, { type: "place_setup_settlement", vertexId })) return true;
+  }
+  // Fallback: any legal vertex (extremely unlikely to be needed).
+  for (const vertexId of rankedVertices(s)) {
     if (act(game, color, { type: "place_setup_settlement", vertexId })) return true;
   }
   return false;
