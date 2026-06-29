@@ -11,19 +11,36 @@ import {
   type ActionResult,
   type InternalGame,
 } from "./engine.js";
+import { botShouldAct, botStep } from "./bot.js";
 
 const MAX_PLAYERS = 4;
 const MIN_PLAYERS = 2; // base game supports 3-4; allow 2 for testing
+const BOT_NAMES = ["Aria-Bot", "Bolt-Bot", "Cora-Bot", "Dex-Bot"];
+const BOT_MOVE_DELAY_MS = 800; // paced so humans can follow the bot's moves
 
 // Active in-memory games (authoritative runtime state).
 const active = new Map<string, InternalGame>();
+
+// Broadcast hook, set by the WebSocket layer, used to push bot moves to clients.
+let broadcaster: (gameId: string) => void = () => {};
+export function setBroadcaster(fn: (gameId: string) => void) {
+  broadcaster = fn;
+}
+
+export interface LobbyPlayer {
+  userId: string;
+  name: string;
+  color: PlayerColor;
+  seat: number;
+  isBot: boolean;
+}
 
 export interface LobbyGame {
   id: string;
   name: string;
   hostId: string;
   phase: string;
-  players: { userId: string; name: string; color: PlayerColor; seat: number }[];
+  players: LobbyPlayer[];
 }
 
 export function createLobby(hostId: string, name: string): LobbyGame {
@@ -47,14 +64,16 @@ export function getLobby(id: string): LobbyGame | null {
     .prepare("SELECT * FROM game_players WHERE game_id = ? ORDER BY seat")
     .all(id) as GamePlayerRow[];
   const players = rows.map((r) => {
+    // Per-seat name (used for bots); fall back to the user's username.
     const u = db.prepare("SELECT username FROM users WHERE id = ?").get(r.user_id) as
       | { username: string }
       | undefined;
     return {
       userId: r.user_id,
-      name: u?.username ?? "?",
+      name: r.name ?? u?.username ?? "?",
       color: r.color as PlayerColor,
       seat: r.seat,
+      isBot: !!r.is_bot,
     };
   });
   return {
@@ -98,8 +117,50 @@ export function joinLobby(gameId: string, userId: string): LobbyGame {
   const color = PLAYER_COLORS.find((c) => !used.has(c))!;
   const seat = lobby.players.length;
   db.prepare(
-    "INSERT INTO game_players (game_id, user_id, color, seat) VALUES (?, ?, ?, ?)"
+    "INSERT INTO game_players (game_id, user_id, color, seat, is_bot) VALUES (?, ?, ?, ?, 0)"
   ).run(gameId, userId, color, seat);
+  return getLobby(gameId)!;
+}
+
+// Host adds an AI bot to an open seat. Bots get a throwaway user row (with an
+// unusable password) so the existing foreign key / username join keep working.
+export function addBot(gameId: string, hostId: string): LobbyGame {
+  const lobby = getLobby(gameId);
+  if (!lobby) throw new Error("Game not found.");
+  if (lobby.hostId !== hostId) throw new Error("Only the host can add bots.");
+  if (lobby.phase !== "lobby") throw new Error("Game already started.");
+  if (lobby.players.length >= MAX_PLAYERS) throw new Error("Game is full.");
+
+  const used = new Set(lobby.players.map((p) => p.color));
+  const color = PLAYER_COLORS.find((c) => !used.has(c))!;
+  const seat = lobby.players.length;
+  const botUserId = `bot-${randomUUID()}`; // globally unique -> safe as username
+  // Friendly per-seat display name, distinct among this game's bots.
+  const usedNames = new Set(lobby.players.filter((p) => p.isBot).map((p) => p.name));
+  const name = BOT_NAMES.find((n) => !usedNames.has(n)) ?? `Bot-${seat}`;
+
+  db.prepare(
+    "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)"
+  ).run(botUserId, botUserId, "!bot-no-login!", Date.now());
+  db.prepare(
+    "INSERT INTO game_players (game_id, user_id, color, seat, is_bot, name) VALUES (?, ?, ?, ?, 1, ?)"
+  ).run(gameId, botUserId, color, seat, name);
+  return getLobby(gameId)!;
+}
+
+// Host removes a bot seat (and its throwaway user row).
+export function removeBot(gameId: string, hostId: string, botUserId: string): LobbyGame {
+  const lobby = getLobby(gameId);
+  if (!lobby) throw new Error("Game not found.");
+  if (lobby.hostId !== hostId) throw new Error("Only the host can remove bots.");
+  if (lobby.phase !== "lobby") throw new Error("Game already started.");
+  const target = lobby.players.find((p) => p.userId === botUserId);
+  if (!target || !target.isBot) throw new Error("Not a bot seat.");
+  db.prepare("DELETE FROM game_players WHERE game_id = ? AND user_id = ?").run(
+    gameId,
+    botUserId
+  );
+  db.prepare("DELETE FROM users WHERE id = ?").run(botUserId);
   return getLobby(gameId)!;
 }
 
@@ -111,7 +172,13 @@ export function leaveLobby(gameId: string, userId: string): void {
     userId
   );
   const remaining = getLobby(gameId);
-  if (!remaining || remaining.players.length === 0) {
+  // Tear down the lobby once no humans remain (don't leave a bots-only game).
+  if (!remaining || remaining.players.every((p) => p.isBot)) {
+    if (remaining) {
+      for (const bot of remaining.players.filter((p) => p.isBot)) {
+        db.prepare("DELETE FROM users WHERE id = ?").run(bot.userId);
+      }
+    }
     db.prepare("DELETE FROM games WHERE id = ?").run(gameId);
   }
 }
@@ -130,10 +197,12 @@ export function startGame(gameId: string, userId: string): InternalGame {
     userId: p.userId,
     name: p.name,
     color: p.color,
+    isBot: p.isBot,
   }));
   const game = createGame(gameId, row.seed, seats);
   active.set(gameId, game);
   persist(gameId);
+  scheduleBots(gameId); // in case seat 0 is a bot
   return game;
 }
 
@@ -165,8 +234,40 @@ export function handleAction(
   const color = colorForUser(game, userId);
   if (!color) throw new Error("You are not in this game.");
   const result = applyAction(game, color, msg);
-  if (result.ok) persist(gameId);
+  if (result.ok) {
+    persist(gameId);
+    scheduleBots(gameId); // a human action may hand the turn to a bot
+  }
   return { game, result };
+}
+
+// ---- Bot scheduling ----
+// One bot action per tick, broadcasting between moves so play is watchable.
+const botTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function scheduleBots(gameId: string) {
+  if (botTimers.has(gameId)) return; // already pending
+  const game = active.get(gameId);
+  if (!game || !botShouldAct(game)) return;
+  const timer = setTimeout(() => {
+    botTimers.delete(gameId);
+    botTick(gameId);
+  }, BOT_MOVE_DELAY_MS);
+  botTimers.set(gameId, timer);
+}
+
+function botTick(gameId: string) {
+  const game = active.get(gameId);
+  if (!game) return;
+  if (!botShouldAct(game)) return;
+
+  const acted = botStep(game);
+  if (acted) {
+    persist(gameId);
+    broadcaster(gameId);
+  }
+  // Keep going while a bot is still on the clock (and we made progress).
+  if (acted && botShouldAct(game)) scheduleBots(gameId);
 }
 
 export function setConnected(gameId: string, userId: string, connected: boolean) {

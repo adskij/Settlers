@@ -36,6 +36,7 @@ interface SeatInput {
   userId: string;
   name: string;
   color: PlayerColor;
+  isBot?: boolean;
 }
 
 function emptyResources(): ResourceCounts {
@@ -55,7 +56,8 @@ export function createGame(
     userId: s.userId,
     name: s.name,
     color: s.color,
-    connected: false,
+    connected: !!s.isBot, // bots are always "present"
+    isBot: !!s.isBot,
     resources: emptyResources(),
     devCards: [],
     newDevCards: [],

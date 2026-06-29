@@ -81,6 +81,8 @@ export interface PlayerState {
   name: string;
   color: PlayerColor;
   connected: boolean;
+  /** AI-controlled seat (filled by the server, not a human). */
+  isBot: boolean;
   resources: ResourceCounts;
   /** Dev cards in hand. Hidden from other players (server redacts). */
   devCards: DevCardKind[];

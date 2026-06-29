@@ -7,12 +7,14 @@ import {
   verifyToken,
 } from "./auth.js";
 import {
+  addBot,
   createLobby,
   getLobby,
   joinLobby,
   leaveLobby,
   listMyGames,
   listOpenLobbies,
+  removeBot,
 } from "./gameManager.js";
 
 export const router = Router();
@@ -121,5 +123,21 @@ router.post(
   wrap((req, res) => {
     leaveLobby(req.params.id, req.userId!);
     res.json({ ok: true });
+  })
+);
+
+router.post(
+  "/games/:id/bots",
+  requireAuth,
+  wrap((req, res) => {
+    res.json({ game: addBot(req.params.id, req.userId!) });
+  })
+);
+
+router.post(
+  "/games/:id/bots/remove",
+  requireAuth,
+  wrap((req, res) => {
+    res.json({ game: removeBot(req.params.id, req.userId!, req.body?.botUserId) });
   })
 );

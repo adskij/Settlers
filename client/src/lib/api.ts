@@ -56,4 +56,11 @@ export const api = {
     request<{ game: LobbyGame }>(`/games/${id}/join`, { method: "POST" }),
   leaveGame: (id: string) =>
     request<{ ok: boolean }>(`/games/${id}/leave`, { method: "POST" }),
+  addBot: (id: string) =>
+    request<{ game: LobbyGame }>(`/games/${id}/bots`, { method: "POST" }),
+  removeBot: (id: string, botUserId: string) =>
+    request<{ game: LobbyGame }>(`/games/${id}/bots/remove`, {
+      method: "POST",
+      body: JSON.stringify({ botUserId }),
+    }),
 };

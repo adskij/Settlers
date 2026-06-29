@@ -19,7 +19,9 @@ client cannot cheat.
 - **Reconnect-friendly** — the client auto-reconnects and resyncs full state.
 - **Mobile-first UI** — responsive SVG board, touch-sized controls, safe-area insets,
   no-zoom viewport; reflows to a side panel on large landscape screens.
-- **No AI** — strictly human players (2–4; the base game is best with 3–4).
+- **Invite links** — share a deep link (`?game=<id>`); opening it logs in and seats you automatically.
+- **Optional AI bots** — the host can fill any open seat with a greedy AI bot; bots play
+  their turns automatically (2–4 players total; the base game is best with 3–4).
 
 ### Base-game rules implemented
 
@@ -192,7 +194,8 @@ visibility → Public) so App Service can pull it — or keep it private and pas
 
 ## Known simplifications / next steps
 
-- No AI / bots (by design).
+- AI bots are intentionally simple (greedy: best-spot settlements/cities, opportunistic
+  roads, dev-card buys). They don't play knights/dev cards or initiate trades — room to grow.
 - Player-to-player trading is a simple open offer + accept (no counter-offers yet).
 - Dev cards limited to one play per turn (per the rules); deck reshuffling not needed (single deck).
 - Spectators, chat, game history, and rematch are not implemented.

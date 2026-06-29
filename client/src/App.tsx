@@ -9,10 +9,23 @@ export interface CurrentUser {
   username: string;
 }
 
+// Read ?game=<id> from the URL so invite links deep-link into a game.
+function gameIdFromUrl(): string | null {
+  return new URLSearchParams(window.location.search).get("game");
+}
+
+// Reflect the active game in the URL so it's shareable / survives refresh.
+function setUrlGame(id: string | null) {
+  const url = new URL(window.location.href);
+  if (id) url.searchParams.set("game", id);
+  else url.searchParams.delete("game");
+  window.history.replaceState({}, "", url.toString());
+}
+
 export function App() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+  const [activeGameId, setActiveGameId] = useState<string | null>(gameIdFromUrl);
 
   // Restore session from a stored token on first load.
   useEffect(() => {
@@ -27,10 +40,15 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  const enterGame = (id: string | null) => {
+    setActiveGameId(id);
+    setUrlGame(id);
+  };
+
   const logout = () => {
     setToken(null);
     setUser(null);
-    setActiveGameId(null);
+    enterGame(null);
   };
 
   if (loading) {
@@ -38,6 +56,7 @@ export function App() {
   }
 
   if (!user) {
+    // Preserve the invite link through login so the user lands in the game.
     return <AuthScreen onAuthed={setUser} />;
   }
 
@@ -46,16 +65,12 @@ export function App() {
       <GameScreen
         gameId={activeGameId}
         user={user}
-        onExit={() => setActiveGameId(null)}
+        onExit={() => enterGame(null)}
       />
     );
   }
 
   return (
-    <LobbyScreen
-      user={user}
-      onLogout={logout}
-      onEnterGame={(id) => setActiveGameId(id)}
-    />
+    <LobbyScreen user={user} onLogout={logout} onEnterGame={enterGame} />
   );
 }

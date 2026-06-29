@@ -5,6 +5,7 @@ import { verifyToken } from "./auth.js";
 import {
   handleAction,
   loadGame,
+  setBroadcaster,
   setConnected,
   startGame,
   colorForUser,
@@ -22,6 +23,9 @@ const rooms = new Map<string, Set<Client>>();
 
 export function attachWebSocket(server: Server) {
   const wss = new WebSocketServer({ server, path: "/ws" });
+
+  // Let the game manager push bot moves to all clients in a room.
+  setBroadcaster(broadcastState);
 
   wss.on("connection", (ws, req) => {
     // Authenticate via ?token= query param.

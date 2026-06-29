@@ -35,11 +35,24 @@ db.exec(`
     user_id TEXT NOT NULL,
     color TEXT NOT NULL,
     seat INTEGER NOT NULL,
+    is_bot INTEGER NOT NULL DEFAULT 0,
+    name TEXT,
     PRIMARY KEY (game_id, user_id),
     FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+
+// Migrations for databases created before bots existed.
+const gamePlayerCols = db
+  .prepare("PRAGMA table_info(game_players)")
+  .all() as { name: string }[];
+if (!gamePlayerCols.some((c) => c.name === "is_bot")) {
+  db.exec("ALTER TABLE game_players ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0");
+}
+if (!gamePlayerCols.some((c) => c.name === "name")) {
+  db.exec("ALTER TABLE game_players ADD COLUMN name TEXT");
+}
 
 export interface UserRow {
   id: string;
@@ -64,4 +77,6 @@ export interface GamePlayerRow {
   user_id: string;
   color: string;
   seat: number;
+  is_bot: number;
+  name: string | null;
 }

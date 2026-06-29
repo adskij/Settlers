@@ -112,6 +112,22 @@ input, select {
 .seat { display: flex; align-items: center; gap: 10px; background: var(--bg-2); padding: 10px; border-radius: 10px; }
 .seat.empty { opacity: 0.6; }
 .host-tag { margin-left: auto; font-size: 11px; background: var(--accent); color: #2a1a00; padding: 2px 8px; border-radius: 999px; }
+.seat-remove {
+  margin-left: auto; background: none; border: none; color: var(--danger);
+  font-size: 20px; line-height: 1; padding: 0 6px; cursor: pointer;
+}
+.seat-addbot {
+  margin-left: auto; background: var(--card-2); color: var(--text);
+  border: 1px solid rgba(255,255,255,0.15); border-radius: 999px;
+  font-size: 12px; padding: 4px 10px; cursor: pointer; min-height: 32px;
+}
+.invite { margin: 6px 0 14px; }
+.invite-row { display: flex; gap: 8px; align-items: center; }
+.invite-input {
+  flex: 1; min-width: 0; font-size: 13px; color: var(--muted);
+  background: var(--bg-2); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px; padding: 10px; min-height: 44px;
+}
 .color-swatch { width: 18px; height: 18px; border-radius: 5px; display: inline-block; border: 1px solid rgba(0,0,0,0.3); }
 .color-swatch.red { background: var(--red); }
 .color-swatch.blue { background: var(--blue); }

@@ -88,7 +88,7 @@ export function Hud({
             } ${p.color === you ? "you" : ""}`}
           >
             <span className={`color-swatch ${p.color}`} />
-            <span className="pname">{p.name}</span>
+            <span className="pname">{p.isBot ? "🤖 " : ""}{p.name}</span>
             <span className="vp">{publicVP(state, p.color)}⭐</span>
             <span className="cards">
               🂠{p.color === you ? total(p) : total(p)}
