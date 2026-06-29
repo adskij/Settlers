@@ -187,6 +187,12 @@ export function Board({
           <filter id="piece-shadow" x="-40%" y="-40%" width="180%" height="180%">
             <feDropShadow dx="0" dy="0.25" stdDeviation="0.35" floodColor="#000" floodOpacity="0.4" />
           </filter>
+          {/* Robber: dark stone with a top-down highlight for a 3D pawn look. */}
+          <linearGradient id="robber-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#5b5b68" />
+            <stop offset="55%" stopColor="#33333d" />
+            <stop offset="100%" stopColor="#141418" />
+          </linearGradient>
         </defs>
 
         {/* Hexes */}
@@ -222,10 +228,7 @@ export function Board({
                 <NumberToken cx={hex.center.x} cy={hex.center.y} n={hex.number} />
               )}
               {hex.id === board.robberHexId && (
-                <g pointerEvents="none" filter="url(#piece-shadow)">
-                  <ellipse cx={hex.center.x} cy={hex.center.y + 2.4} rx={1.7} ry={2.4} fill="#2b2b30" />
-                  <circle cx={hex.center.x} cy={hex.center.y - 0.4} r={1.3} fill="#2b2b30" />
-                </g>
+                <Robber cx={hex.center.x} cy={hex.center.y} />
               )}
             </g>
           );
@@ -365,6 +368,32 @@ export function Board({
 }
 
 // Wooden number token with red highlight on the high-probability 6 & 8.
+// The robber: a classic dark pawn (hooded silhouette) with shading, a head
+// highlight and a soft ground shadow, sitting on the blocked hex.
+function Robber({ cx, cy }: { cx: number; cy: number }) {
+  const body = `M ${cx - 0.85} ${cy - 1.3}
+    C ${cx - 1.5} ${cy - 0.1} ${cx - 2.1} ${cy + 1.4} ${cx - 2.1} ${cy + 2.2}
+    Q ${cx - 2.1} ${cy + 2.9} ${cx - 1.4} ${cy + 2.9}
+    L ${cx + 1.4} ${cy + 2.9}
+    Q ${cx + 2.1} ${cy + 2.9} ${cx + 2.1} ${cy + 2.2}
+    C ${cx + 2.1} ${cy + 1.4} ${cx + 1.5} ${cy - 0.1} ${cx + 0.85} ${cy - 1.3} Z`;
+  return (
+    <g pointerEvents="none">
+      {/* soft shadow on the ground */}
+      <ellipse cx={cx} cy={cy + 3.15} rx={2.6} ry={0.7} fill="#000" opacity={0.35} />
+      <g filter="url(#piece-shadow)">
+        <path d={body} fill="url(#robber-grad)" stroke="#0c0c10" strokeWidth={0.25} />
+        {/* collar between head and body */}
+        <ellipse cx={cx} cy={cy - 1.2} rx={1.15} ry={0.42} fill="url(#robber-grad)" stroke="#0c0c10" strokeWidth={0.2} />
+        {/* head */}
+        <circle cx={cx} cy={cy - 2.6} r={1.45} fill="url(#robber-grad)" stroke="#0c0c10" strokeWidth={0.25} />
+        {/* highlight */}
+        <ellipse cx={cx - 0.45} cy={cy - 3.0} rx={0.5} ry={0.72} fill="#ffffff" opacity={0.22} />
+      </g>
+    </g>
+  );
+}
+
 function NumberToken({ cx, cy, n }: { cx: number; cy: number; n: number }) {
   const hot = n === 6 || n === 8;
   const pips = 6 - Math.abs(7 - n); // probability dots
