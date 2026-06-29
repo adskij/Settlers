@@ -111,26 +111,58 @@ export function Hud({
       {error && <div className="toast error" onClick={clearError}>{error}</div>}
       {showCosts && <CostsModal onClose={() => setShowCosts(false)} />}
 
-      {/* Players strip */}
+      {/* Players strip: a card per player with VP + hand clearly shown */}
       <div className="players-strip">
-        {state.players.map((p, i) => (
-          <div
-            key={p.color}
-            className={`player-tag ${p.color} ${
-              i === state.currentPlayerIndex ? "active" : ""
-            } ${p.color === you ? "you" : ""}`}
-          >
-            <span className={`color-swatch ${p.color}`} />
-            <span className="pname">{p.isBot ? "🤖 " : ""}{p.name}</span>
-            <span className="vp">{publicVP(state, p.color)}⭐</span>
-            <span className="cards">
-              🂠{p.color === you ? total(p) : total(p)}
-            </span>
-            {state.largestArmyOwner === p.color && <span title="Largest Army">⚔️</span>}
-            {state.longestRoadOwner === p.color && <span title="Longest Road">🛣️</span>}
-            {!p.connected && <span className="off-dot" title="disconnected">●</span>}
-          </div>
-        ))}
+        {state.players.map((p, i) => {
+          const devCount = p.devCards.length + p.newDevCards.length;
+          return (
+            <div
+              key={p.color}
+              className={`player-card ${p.color} ${
+                i === state.currentPlayerIndex ? "active" : ""
+              } ${p.color === you ? "you" : ""}`}
+            >
+              <div className="pc-top">
+                <span className={`color-swatch ${p.color}`} />
+                <span className="pc-name">
+                  {p.isBot ? "🤖 " : ""}
+                  {p.name}
+                  {p.color === you ? " (you)" : ""}
+                </span>
+                {!p.connected && !p.isBot && (
+                  <span className="off-dot" title="disconnected">●</span>
+                )}
+              </div>
+              <div className="pc-stats">
+                <span className="pc-vp" title="Victory points">
+                  {publicVP(state, p.color)}
+                  <small>VP</small>
+                </span>
+                <span className="pc-pill" title="Resource cards in hand">
+                  <i className="mini-card res" />
+                  {total(p)}
+                </span>
+                <span className="pc-pill" title="Development cards in hand">
+                  <i className="mini-card dev" />
+                  {devCount}
+                </span>
+              </div>
+              <div className="pc-tags">
+                {state.longestRoadOwner === p.color && (
+                  <span className="pc-tag" title="Longest Road (+2 VP)">🛣️</span>
+                )}
+                {state.largestArmyOwner === p.color && (
+                  <span className="pc-tag" title="Largest Army (+2 VP)">🎖️</span>
+                )}
+                {p.playedKnights > 0 && (
+                  <span className="pc-tag muted" title="Knights played">
+                    ⚔️ {p.playedKnights}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Special awards: Longest Road & Largest Army (each worth 2 VP) */}

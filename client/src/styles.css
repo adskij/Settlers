@@ -173,16 +173,43 @@ input, select {
   display: flex; flex-direction: column; gap: 8px;
   max-height: 52vh; overflow-y: auto;
 }
-.players-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
-.player-tag {
-  display: flex; align-items: center; gap: 5px;
-  background: var(--card); padding: 5px 9px; border-radius: 999px;
-  font-size: 12px; white-space: nowrap; border: 2px solid transparent;
+.players-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.player-card {
+  flex: 0 0 auto; min-width: 116px;
+  background: var(--card); border: 2px solid transparent; border-radius: 12px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
 }
-.player-tag.active { border-color: var(--accent); }
-.player-tag.you .pname { font-weight: 700; }
-.player-tag .vp { color: var(--accent); }
-.off-dot { color: var(--danger); }
+.player-card.active { border-color: var(--accent); box-shadow: 0 0 10px rgba(240,168,48,0.25); }
+.player-card.you { background: var(--card-2); }
+.pc-top { display: flex; align-items: center; gap: 6px; }
+.pc-name {
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 110px;
+}
+.player-card.you .pc-name { font-weight: 800; }
+.pc-stats { display: flex; align-items: center; gap: 6px; }
+.pc-vp {
+  display: inline-flex; align-items: baseline; gap: 2px;
+  background: linear-gradient(135deg, #f6c34a, #e09a2b); color: #3a2400;
+  font-weight: 800; border-radius: 8px; padding: 2px 8px; font-size: 17px;
+  line-height: 1; font-variant-numeric: tabular-nums;
+}
+.pc-vp small { font-size: 9px; font-weight: 800; }
+.pc-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-2); border-radius: 7px; padding: 3px 7px; font-size: 13px;
+  font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.mini-card {
+  width: 11px; height: 15px; border-radius: 2px; display: inline-block;
+  border: 1px solid rgba(255,255,255,0.45); box-shadow: 0 1px 1px rgba(0,0,0,0.3);
+}
+.mini-card.res { background: linear-gradient(135deg, #d08a44, #7a5326); }
+.mini-card.dev { background: linear-gradient(135deg, #6a4cab, #4a2f86); }
+.pc-tags { display: flex; align-items: center; gap: 6px; min-height: 16px; font-size: 12px; }
+.pc-tag { font-size: 14px; }
+.pc-tag.muted { color: var(--muted); font-size: 12px; }
+.off-dot { color: var(--danger); font-size: 10px; margin-left: auto; }
 
 .hand { display: flex; gap: 6px; flex-wrap: wrap; }
 .res-chip {
