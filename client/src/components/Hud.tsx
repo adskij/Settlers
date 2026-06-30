@@ -97,6 +97,15 @@ export function Hud({
   const isYourTurn = state.players[state.currentPlayerIndex]?.color === you;
   const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev">("none");
   const [showCosts, setShowCosts] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // Tick once a second while any offer has a countdown, to refresh the timer.
+  const hasTimedTrade = state.pendingTrades.some((t) => t.expiresAt);
+  useEffect(() => {
+    if (!hasTimedTrade) return;
+    const id = setInterval(() => setNowMs(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [hasTimedTrade]);
 
   useEffect(() => {
     if (!error) return;
@@ -171,30 +180,49 @@ export function Hud({
       {/* Pending trade offers */}
       {state.pendingTrades.length > 0 && (
         <div className="trade-offers">
-          {state.pendingTrades.map((t) => (
-            <div key={t.id} className="trade-offer">
-              <span>
-                <strong>{t.from}</strong> gives {fmtBundle(t.give)} for{" "}
-                {fmtBundle(t.receive)}
-              </span>
-              {t.from !== you && (
-                <button
-                  className="btn sm"
-                  onClick={() => send({ type: "accept_trade", tradeId: t.id })}
-                >
-                  Accept
-                </button>
-              )}
-              {t.from === you && (
-                <button
-                  className="btn sm"
-                  onClick={() => send({ type: "cancel_trade", tradeId: t.id })}
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-          ))}
+          {state.pendingTrades.map((t) => {
+            const fromName = state.players.find((p) => p.color === t.from)?.name ?? t.from;
+            const mine = t.from === you;
+            const forMe = !mine && (t.to === null || t.to === you);
+            const secsLeft = t.expiresAt
+              ? Math.max(0, Math.ceil((t.expiresAt - nowMs) / 1000))
+              : null;
+            return (
+              <div key={t.id} className="trade-offer">
+                <span className="trade-text">
+                  <strong>{fromName}</strong> gives {fmtBundle(t.give)} for{" "}
+                  {fmtBundle(t.receive)}
+                  {secsLeft != null && <span className="trade-timer"> · {secsLeft}s</span>}
+                </span>
+                <span className="trade-actions">
+                  {forMe && (
+                    <button
+                      className="btn sm primary"
+                      onClick={() => send({ type: "accept_trade", tradeId: t.id })}
+                    >
+                      Accept{secsLeft != null ? ` (${secsLeft}s)` : ""}
+                    </button>
+                  )}
+                  {forMe && (
+                    <button
+                      className="btn sm ghost"
+                      onClick={() => send({ type: "decline_trade", tradeId: t.id })}
+                    >
+                      Decline
+                    </button>
+                  )}
+                  {mine && (
+                    <button
+                      className="btn sm"
+                      onClick={() => send({ type: "cancel_trade", tradeId: t.id })}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
