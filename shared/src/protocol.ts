@@ -34,6 +34,7 @@ export type ClientMessage =
     }
   | { type: "accept_trade"; tradeId: string }
   | { type: "cancel_trade"; tradeId: string }
+  | { type: "decline_trade"; tradeId: string }
   | {
       type: "bank_trade";
       give: Partial<ResourceCounts>;

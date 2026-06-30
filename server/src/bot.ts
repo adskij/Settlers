@@ -15,9 +15,10 @@ import {
 } from "@settlers/shared";
 import { applyAction, type InternalGame } from "./engine.js";
 
-// How many scheduler ticks a bot keeps an offer open before giving up (gives
-// humans / other bots a few seconds to accept).
-const BOT_TRADE_WAIT_TICKS = 4;
+// How long a bot keeps an offer open for a *human* to accept after no AI
+// takes it. Other bots decide instantly (next tick), so all-bot games never
+// actually wait this out.
+const BOT_TRADE_WAIT_MS = 30_000;
 
 // Number-token "pip" weight: how likely a hex is to produce (6/8 best).
 function pip(n: number | null): number {
@@ -260,6 +261,13 @@ function chooseOffer(
   return { give: { [surplus]: 1 }, receive: { [needed]: 1 } };
 }
 
+// Is there a human who could still accept this offer (so it's worth holding open)?
+function humanCanAccept(s: GameState, t: { from: PlayerColor; to: PlayerColor | null }): boolean {
+  return s.players.some(
+    (p) => !p.isBot && p.color !== t.from && (t.to === null || t.to === p.color)
+  );
+}
+
 // Returns "acted" if it made a trade move (offer/wait), "continue" otherwise.
 function handleBotTrade(
   game: InternalGame,
@@ -271,14 +279,20 @@ function handleBotTrade(
 
   if (bt && bt.color === color) {
     if (bt.phase === "done") return "continue";
-    const stillOpen = s.pendingTrades.some((t) => t.id === bt.tradeId);
-    if (stillOpen && bt.ticksLeft > 0) {
-      bt.ticksLeft -= 1;
-      return "acted"; // wait for someone to accept
+    const trade = s.pendingTrades.find((t) => t.id === bt.tradeId);
+    if (!trade) {
+      bt.phase = "done"; // accepted or declined — move on
+      return "continue";
     }
-    if (stillOpen) act(game, color, { type: "cancel_trade", tradeId: bt.tradeId });
-    bt.phase = "done"; // don't re-offer this turn
-    return "continue";
+    const expired = !bt.expiresAt || Date.now() >= bt.expiresAt;
+    // Other bots already had their chance (they evaluate every tick). Keep the
+    // offer open only while a human could still take it, up to the time limit.
+    if (expired || !humanCanAccept(s, trade)) {
+      act(game, color, { type: "cancel_trade", tradeId: bt.tradeId });
+      bt.phase = "done";
+      return "continue";
+    }
+    return "acted"; // hold the offer open for the human (counts down to expiry)
   }
 
   const offer = chooseOffer(game, me);
@@ -287,16 +301,13 @@ function handleBotTrade(
     act(game, color, { type: "offer_trade", to: null, give: offer.give, receive: offer.receive })
   ) {
     const mine = [...s.pendingTrades].reverse().find((t) => t.from === color);
-    game.botTrade = {
-      color,
-      tradeId: mine ? mine.id : "",
-      ticksLeft: BOT_TRADE_WAIT_TICKS,
-      phase: "open",
-    };
+    const expiresAt = Date.now() + BOT_TRADE_WAIT_MS;
+    if (mine) mine.expiresAt = expiresAt; // drives the client's countdown
+    game.botTrade = { color, tradeId: mine ? mine.id : "", expiresAt, phase: "open" };
     return "acted";
   }
   // Mark trading as done for this turn so we don't retry every tick.
-  game.botTrade = { color, tradeId: "", ticksLeft: 0, phase: "done" };
+  game.botTrade = { color, tradeId: "", expiresAt: 0, phase: "done" };
   return "continue";
 }
 

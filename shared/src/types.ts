@@ -110,6 +110,8 @@ export interface TradeOffer {
   to: PlayerColor | null;
   give: Partial<ResourceCounts>;
   receive: Partial<ResourceCounts>;
+  /** Optional epoch-ms expiry (used for AI offers the human can accept). */
+  expiresAt?: number;
 }
 
 export interface GameState {

@@ -29,7 +29,7 @@ export interface InternalGame {
   botTrade?: {
     color: PlayerColor;
     tradeId: string;
-    ticksLeft: number;
+    expiresAt: number;
     phase: "open" | "done";
   } | null;
 }
@@ -321,6 +321,8 @@ export function applyAction(
         return acceptTrade(game, color, msg.tradeId);
       case "cancel_trade":
         return cancelTrade(game, color, msg.tradeId);
+      case "decline_trade":
+        return declineTrade(game, color, msg.tradeId);
       case "end_turn":
         return endTurn(game, color, isCurrent);
       default:
@@ -819,6 +821,18 @@ function cancelTrade(game: InternalGame, color: PlayerColor, tradeId: string): A
   if (!trade) return ok();
   if (trade.from !== color) return fail("Only the offerer can cancel.");
   state.pendingTrades = state.pendingTrades.filter((t) => t.id !== tradeId);
+  return ok();
+}
+
+// A recipient declines/dismisses an open offer (e.g. an AI bot's), removing it.
+function declineTrade(game: InternalGame, color: PlayerColor, tradeId: string): ActionResult {
+  const { state } = game;
+  const trade = state.pendingTrades.find((t) => t.id === tradeId);
+  if (!trade) return ok();
+  if (trade.from === color) return fail("Cancel your own offer instead.");
+  if (trade.to && trade.to !== color) return fail("This offer isn't to you.");
+  state.pendingTrades = state.pendingTrades.filter((t) => t.id !== tradeId);
+  log(state, `${nameOf(state, color)} declined a trade.`);
   return ok();
 }
 
