@@ -445,9 +445,13 @@ function chooseOffer(
 }
 
 // Is there a human who could still accept this offer (so it's worth holding open)?
-function humanCanAccept(s: GameState, t: { from: PlayerColor; to: PlayerColor | null }): boolean {
+function humanCanAccept(s: GameState, t: TradeOffer): boolean {
   return s.players.some(
-    (p) => !p.isBot && p.color !== t.from && (t.to === null || t.to === p.color)
+    (p) =>
+      !p.isBot &&
+      p.color !== t.from &&
+      (t.to === null || t.to === p.color) &&
+      canAfford(p, t.receive) // the human must actually have what's asked for
   );
 }
 

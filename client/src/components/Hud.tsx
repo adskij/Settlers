@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BUILD_COSTS,
   RESOURCES,
@@ -107,6 +107,21 @@ export function Hud({
     return () => clearInterval(id);
   }, [hasTimedTrade]);
 
+  // Auto-decline incoming offers I can't actually accept (I don't hold the
+  // resources they're asking for), so they don't clutter the trade panel.
+  const autoDeclined = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!me) return;
+    for (const t of state.pendingTrades) {
+      if (t.from === you || (t.to && t.to !== you)) continue; // not an offer to me
+      const iCanAfford = RESOURCES.every((r) => me.resources[r] >= (t.receive[r] ?? 0));
+      if (!iCanAfford && !autoDeclined.current.has(t.id)) {
+        autoDeclined.current.add(t.id);
+        send({ type: "decline_trade", tradeId: t.id });
+      }
+    }
+  }, [state.pendingTrades, me, you, send]);
+
   useEffect(() => {
     if (!error) return;
     const t = setTimeout(clearError, 4000);
@@ -184,6 +199,8 @@ export function Hud({
             const fromName = state.players.find((p) => p.color === t.from)?.name ?? t.from;
             const mine = t.from === you;
             const forMe = !mine && (t.to === null || t.to === you);
+            const canAccept =
+              forMe && !!me && RESOURCES.every((r) => me.resources[r] >= (t.receive[r] ?? 0));
             const secsLeft = t.expiresAt
               ? Math.max(0, Math.ceil((t.expiresAt - nowMs) / 1000))
               : null;
@@ -195,7 +212,7 @@ export function Hud({
                   {secsLeft != null && <span className="trade-timer"> · {secsLeft}s</span>}
                 </span>
                 <span className="trade-actions">
-                  {forMe && (
+                  {canAccept && (
                     <button
                       className="btn sm primary"
                       onClick={() => send({ type: "accept_trade", tradeId: t.id })}
