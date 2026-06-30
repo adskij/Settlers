@@ -185,11 +185,194 @@ function botSetupRoad(game: InternalGame, color: PlayerColor): boolean {
   const s = game.state;
   const v = s.pendingSetupVertex;
   if (v == null) return false;
-  const edges = s.board.edges.filter((e) => e.v1 === v || e.v2 === v);
+  // Point the setup road toward the most valuable neighbouring crossing, so it
+  // already heads toward a future settlement spot.
+  const edges = s.board.edges
+    .filter((e) => (e.v1 === v || e.v2 === v) && !s.roads.some((r) => r.edgeId === e.id))
+    .sort((a, b) => {
+      const fa = a.v1 === v ? a.v2 : a.v1;
+      const fb = b.v1 === v ? b.v2 : b.v1;
+      return vertexValue(s, fb) - vertexValue(s, fa);
+    });
   for (const e of edges) {
     if (act(game, color, { type: "place_setup_road", edgeId: e.id })) return true;
   }
   return false;
+}
+
+// ---- Road planning ----
+
+function vertexValue(s: GameState, vid: number): number {
+  const v = s.board.vertices[vid];
+  return v.hexIds.reduce((sum, h) => sum + pip(s.board.hexes[h].number), 0) + (v.port ? 1 : 0);
+}
+
+// A vertex where a settlement is legal by the distance rule (ignoring road
+// connectivity): nothing built on it or any neighbour.
+function settlementLegalFree(s: GameState, vid: number): boolean {
+  if (s.buildings.some((b) => b.vertexId === vid)) return false;
+  return !s.board.vertices[vid].adjacentVertexIds.some((a) =>
+    s.buildings.some((b) => b.vertexId === a)
+  );
+}
+
+// Vertices touched by the player's roads or buildings — their road network.
+function botNetwork(s: GameState, color: PlayerColor): Set<number> {
+  const net = new Set<number>();
+  for (const rd of s.roads) {
+    if (rd.owner !== color) continue;
+    const e = s.board.edges[rd.edgeId];
+    net.add(e.v1);
+    net.add(e.v2);
+  }
+  for (const b of s.buildings) if (b.owner === color) net.add(b.vertexId);
+  return net;
+}
+
+function playerHasRoadTo(s: GameState, color: PlayerColor, vid: number): boolean {
+  return s.roads.some((rd) => {
+    if (rd.owner !== color) return false;
+    const e = s.board.edges[rd.edgeId];
+    return e.v1 === vid || e.v2 === vid;
+  });
+}
+
+// Mirrors the engine's road-connectivity rule (for hypothetical placements).
+function edgeConnectsBot(s: GameState, color: PlayerColor, edgeId: number): boolean {
+  const e = s.board.edges[edgeId];
+  for (const vid of [e.v1, e.v2]) {
+    const b = s.buildings.find((bb) => bb.vertexId === vid);
+    if (b && b.owner === color) return true;
+    const blocked = b && b.owner !== color;
+    if (!blocked && playerHasRoadTo(s, color, vid)) return true;
+  }
+  return false;
+}
+
+// Pick the next road to build so the network advances toward the best reachable
+// high-value free crossing. Runs a 0/1 shortest-path (existing roads are free to
+// traverse, empty edges cost one road) from the network and returns the first
+// NEW edge on the path to the best target. Returns null if no good target.
+function chooseRoadTowardSettlement(s: GameState, color: PlayerColor): number | null {
+  const net = botNetwork(s, color);
+  if (net.size === 0) return null;
+
+  const edgeBetween = new Map<string, number>();
+  for (const e of s.board.edges) {
+    const k = e.v1 < e.v2 ? `${e.v1}-${e.v2}` : `${e.v2}-${e.v1}`;
+    edgeBetween.set(k, e.id);
+  }
+  const ownerOfEdge = new Map<number, PlayerColor>();
+  for (const rd of s.roads) ownerOfEdge.set(rd.edgeId, rd.owner);
+  const oppBuildingAt = (vid: number) =>
+    s.buildings.some((b) => b.vertexId === vid && b.owner !== color);
+
+  const MAXDIST = 3;
+  const dist = new Map<number, number>();
+  const firstEdge = new Map<number, number | undefined>();
+  for (const v of net) {
+    dist.set(v, 0);
+    firstEdge.set(v, undefined);
+  }
+
+  const visited = new Set<number>();
+  while (true) {
+    let u = -1;
+    let best = Infinity;
+    for (const [v, d] of dist) {
+      if (!visited.has(v) && d < best) {
+        best = d;
+        u = v;
+      }
+    }
+    if (u === -1) break;
+    visited.add(u);
+    if (best >= MAXDIST) continue;
+    if (oppBuildingAt(u) && !net.has(u)) continue; // can't route through a rival town
+
+    for (const w of s.board.vertices[u].adjacentVertexIds) {
+      const k = u < w ? `${u}-${w}` : `${w}-${u}`;
+      const edgeId = edgeBetween.get(k);
+      if (edgeId == null) continue;
+      const owner = ownerOfEdge.get(edgeId);
+      if (owner && owner !== color) continue; // rival's road blocks the path
+      const step = owner === color ? 0 : 1;
+      const nd = best + step;
+      if (nd > MAXDIST) continue;
+      if (nd < (dist.get(w) ?? Infinity)) {
+        dist.set(w, nd);
+        const fe = firstEdge.get(u);
+        firstEdge.set(w, step === 0 ? fe : fe ?? edgeId);
+      }
+    }
+  }
+
+  let bestEdge: number | null = null;
+  let bestScore = -Infinity;
+  for (const [v, d] of dist) {
+    if (d < 1 || d > MAXDIST) continue; // must require at least one new road
+    const fe = firstEdge.get(v);
+    if (fe == null) continue;
+    if (!settlementLegalFree(s, v)) continue;
+    const score = vertexValue(s, v) - 0.75 * d; // value, discounted by roads needed
+    if (score > bestScore) {
+      bestScore = score;
+      bestEdge = fe;
+    }
+  }
+  return bestEdge;
+}
+
+// Longest contiguous run of the given edge set, respecting rival-town breaks.
+function longestForRoads(s: GameState, color: PlayerColor, edgeIds: number[]): number {
+  if (edgeIds.length === 0) return 0;
+  const adj = new Map<number, { edgeId: number; to: number }[]>();
+  const push = (v: number, edgeId: number, to: number) => {
+    if (!adj.has(v)) adj.set(v, []);
+    adj.get(v)!.push({ edgeId, to });
+  };
+  for (const id of edgeIds) {
+    const e = s.board.edges[id];
+    push(e.v1, id, e.v2);
+    push(e.v2, id, e.v1);
+  }
+  const blocked = (vid: number) =>
+    s.buildings.some((b) => b.vertexId === vid && b.owner !== color);
+  let best = 0;
+  const dfs = (v: number, used: Set<number>, len: number) => {
+    best = Math.max(best, len);
+    for (const { edgeId, to } of adj.get(v) ?? []) {
+      if (used.has(edgeId)) continue;
+      if (blocked(v)) continue;
+      used.add(edgeId);
+      dfs(to, used, len + 1);
+      used.delete(edgeId);
+    }
+  };
+  for (const v of adj.keys()) dfs(v, new Set(), 0);
+  return best;
+}
+
+// The connected road that most extends the player's longest road.
+function chooseRoadForLongest(
+  s: GameState,
+  color: PlayerColor
+): { edgeId: number; len: number } | null {
+  const myIds = s.roads.filter((r) => r.owner === color).map((r) => r.edgeId);
+  if (myIds.length === 0) return null;
+  const base = longestForRoads(s, color, myIds);
+  let best: number | null = null;
+  let bestLen = base;
+  for (const e of s.board.edges) {
+    if (s.roads.some((r) => r.edgeId === e.id)) continue;
+    if (!edgeConnectsBot(s, color, e.id)) continue;
+    const len = longestForRoads(s, color, [...myIds, e.id]);
+    if (len > bestLen) {
+      bestLen = len;
+      best = e.id;
+    }
+  }
+  return best == null ? null : { edgeId: best, len: bestLen };
 }
 
 // ---- Robber ----
@@ -336,11 +519,16 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
   }
   // 3. Trade toward the goal build (offer once, wait briefly for a taker).
   if (handleBotTrade(game, color, me) === "acted") return true;
-  // 4. Extend the road network.
+  // 4. Build roads with a purpose: head toward the best reachable high-value
+  //    crossing for a future settlement; otherwise extend the longest road when
+  //    that's realistic. Don't build aimless roads.
   if (canAfford(me, BUILD_COSTS.road)) {
-    for (const e of s.board.edges) {
-      if (act(game, color, { type: "build_road", edgeId: e.id })) return true;
+    let edgeId = chooseRoadTowardSettlement(s, color);
+    if (edgeId == null) {
+      const lr = chooseRoadForLongest(s, color);
+      if (lr && lr.len >= 3) edgeId = lr.edgeId; // chase Longest Road when within reach
     }
+    if (edgeId != null && act(game, color, { type: "build_road", edgeId })) return true;
   }
   // 5. Otherwise bank a development card if flush.
   if (s.devDeckCount > 0 && canAfford(me, BUILD_COSTS.dev_card)) {
