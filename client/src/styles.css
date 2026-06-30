@@ -345,6 +345,15 @@ input, select {
   background: var(--accent-2); color: #fff; font-size: 9px; font-weight: 800;
   padding: 1px 5px; border-radius: 999px; text-transform: uppercase;
 }
+.dev-card-mini { cursor: pointer; }
+.dev-card-mini:active { transform: scale(0.96); }
+.dev-card-mini .dc-info { margin-left: 2px; opacity: 0.7; font-size: 12px; }
+
+/* ---- Dev card info modal ---- */
+.devcard-modal { max-width: 340px; }
+.devcard-body { display: flex; gap: 14px; align-items: center; }
+.dc-art { width: 104px; height: 130px; flex: 0 0 auto; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.4)); }
+.devcard-desc { margin: 0; font-size: 14px; line-height: 1.4; color: var(--text); }
 
 .prompt-bar { font-size: 14px; color: var(--text); min-height: 20px; }
 .prompt-hot {

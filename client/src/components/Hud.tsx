@@ -36,6 +36,39 @@ const DEV_ORDER: DevCardKind[] = [
   "monopoly",
 ];
 
+// Full name + what the card does, shown when a card is tapped.
+const DEV_INFO: Record<DevCardKind, { name: string; desc: string }> = {
+  knight: {
+    name: "Knight",
+    desc: "Move the robber to any other hex, then steal a random resource from a player with a building there. Play 3 knights to claim Largest Army (+2 victory points).",
+  },
+  victory_point: {
+    name: "Victory Point",
+    desc: "Worth 1 victory point. It stays hidden in your hand and counts toward the 10 points you need to win.",
+  },
+  road_building: {
+    name: "Road Building",
+    desc: "Immediately place 2 roads for free, anywhere they connect to your network.",
+  },
+  year_of_plenty: {
+    name: "Year of Plenty",
+    desc: "Take any 2 resource cards of your choice from the bank.",
+  },
+  monopoly: {
+    name: "Monopoly",
+    desc: "Name one resource — every other player must hand you all of their cards of that type.",
+  },
+};
+
+// Themed gradient colours for each card's illustration.
+const DEV_ART: Record<DevCardKind, [string, string]> = {
+  knight: ["#6b7a90", "#2b3647"],
+  victory_point: ["#f3cf5a", "#b8801f"],
+  road_building: ["#5a8f6a", "#2f5a3a"],
+  year_of_plenty: ["#e8b25a", "#b06a2a"],
+  monopoly: ["#8a6cc0", "#4a2f86"],
+};
+
 // Group the viewer's own dev cards (playable now vs. bought this turn).
 function devHand(me: PlayerState) {
   const g: Partial<Record<DevCardKind, { playable: number; pending: number }>> = {};
@@ -97,6 +130,7 @@ export function Hud({
   const isYourTurn = state.players[state.currentPlayerIndex]?.color === you;
   const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev">("none");
   const [showCosts, setShowCosts] = useState(false);
+  const [infoCard, setInfoCard] = useState<DevCardKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Tick once a second while any offer has a countdown, to refresh the timer.
@@ -134,6 +168,7 @@ export function Hud({
     <div className="hud">
       {error && <div className="toast error" onClick={clearError}>{error}</div>}
       {showCosts && <CostsModal onClose={() => setShowCosts(false)} />}
+      {infoCard && <DevCardInfoModal kind={infoCard} onClose={() => setInfoCard(null)} />}
 
       {/* Players strip: a card per player with VP + hand clearly shown */}
       <div className="players-strip">
@@ -275,14 +310,12 @@ export function Hud({
           {devHand(me).length > 0 && (
             <div className="dev-hand">
               {devHand(me).map((d) => (
-                <div
+                <button
                   key={d.kind}
+                  type="button"
                   className={`dev-card-mini ${d.pending && !d.playable ? "pending" : ""}`}
-                  title={
-                    d.pending
-                      ? `${DEV_META[d.kind].label} — bought this turn (playable next turn)`
-                      : DEV_META[d.kind].label
-                  }
+                  title="Tap to see what this card does"
+                  onClick={() => setInfoCard(d.kind)}
                 >
                   <span className="dc-icon">{DEV_META[d.kind].icon}</span>
                   <span className="dc-label">{DEV_META[d.kind].label}</span>
@@ -290,7 +323,8 @@ export function Hud({
                     <span className="dc-count">×{d.playable + d.pending}</span>
                   )}
                   {d.pending > 0 && <span className="dc-new">new</span>}
-                </div>
+                  <span className="dc-info" aria-hidden>ⓘ</span>
+                </button>
               ))}
             </div>
           )}
@@ -428,6 +462,128 @@ const COST_ROWS: { key: keyof typeof BUILD_COSTS; icon: string; label: string; n
   { key: "city", icon: "🏙️", label: "City", note: "2 VP (upgrades a settlement)" },
   { key: "dev_card", icon: "🃏", label: "Development card", note: "Knight, VP, and more" },
 ];
+
+// Thematic vector illustration for a development card.
+function DevCardArt({ kind }: { kind: DevCardKind }) {
+  const [c1, c2] = DEV_ART[kind];
+  const id = `dca-${kind}`;
+  return (
+    <svg className="dc-art" viewBox="0 0 120 150" role="img" aria-label={DEV_INFO[kind].name}>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={c1} />
+          <stop offset="100%" stopColor={c2} />
+        </linearGradient>
+      </defs>
+      <rect x="3" y="3" width="114" height="144" rx="12" fill={`url(#${id})`} stroke="rgba(0,0,0,0.35)" />
+      <rect x="3" y="3" width="114" height="144" rx="12" fill="none" stroke="rgba(255,255,255,0.25)" />
+      <g opacity="0.9">{DevCardBackdrop(kind)}</g>
+      <text x="60" y="92" textAnchor="middle" dominantBaseline="central" fontSize="50">
+        {DEV_META[kind].icon}
+      </text>
+    </svg>
+  );
+}
+
+// Per-card decorative backdrop drawn behind the central emblem.
+function DevCardBackdrop(kind: DevCardKind) {
+  const w = "rgba(255,255,255,0.18)";
+  const wl = "rgba(255,255,255,0.35)";
+  switch (kind) {
+    case "knight":
+      return (
+        <g>
+          {/* crossed swords */}
+          <g stroke={wl} strokeWidth="3" strokeLinecap="round">
+            <line x1="34" y1="40" x2="86" y2="118" />
+            <line x1="86" y1="40" x2="34" y2="118" />
+          </g>
+          {/* shield */}
+          <path d="M60 30 L92 42 L88 92 Q60 116 60 116 Q60 116 32 92 L28 42 Z" fill={w} stroke={wl} strokeWidth="2" />
+        </g>
+      );
+    case "victory_point":
+      return (
+        <g>
+          {Array.from({ length: 12 }).map((_, i) => {
+            const a = (i * Math.PI) / 6;
+            return (
+              <line
+                key={i}
+                x1={60 + Math.cos(a) * 22}
+                y1={75 + Math.sin(a) * 22}
+                x2={60 + Math.cos(a) * 46}
+                y2={75 + Math.sin(a) * 46}
+                stroke={w}
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
+            );
+          })}
+          <circle cx="60" cy="75" r="40" fill="none" stroke={wl} strokeWidth="2" />
+        </g>
+      );
+    case "road_building":
+      return (
+        <g stroke={w} strokeWidth="10" strokeLinecap="round">
+          <line x1="20" y1="120" x2="60" y2="30" />
+          <line x1="100" y1="120" x2="60" y2="30" />
+          <g stroke={wl} strokeWidth="2" strokeDasharray="5 6">
+            <line x1="40" y1="120" x2="60" y2="40" />
+            <line x1="80" y1="120" x2="60" y2="40" />
+          </g>
+        </g>
+      );
+    case "year_of_plenty":
+      return (
+        <g>
+          {Array.from({ length: 12 }).map((_, i) => {
+            const a = (i * Math.PI) / 6;
+            return (
+              <line
+                key={i}
+                x1={60 + Math.cos(a) * 26}
+                y1={70 + Math.sin(a) * 26}
+                x2={60 + Math.cos(a) * 44}
+                y2={70 + Math.sin(a) * 44}
+                stroke={w}
+                strokeWidth="5"
+                strokeLinecap="round"
+              />
+            );
+          })}
+          <circle cx="60" cy="70" r="24" fill={w} />
+        </g>
+      );
+    case "monopoly":
+      return (
+        <g fill={w} stroke={wl} strokeWidth="1.5">
+          <ellipse cx="60" cy="116" rx="34" ry="9" />
+          <ellipse cx="60" cy="104" rx="30" ry="8" />
+          <ellipse cx="60" cy="92" rx="26" ry="7" />
+          <circle cx="60" cy="62" r="22" fill="none" stroke={wl} strokeWidth="3" />
+        </g>
+      );
+  }
+}
+
+function DevCardInfoModal({ kind, onClose }: { kind: DevCardKind; onClose: () => void }) {
+  const info = DEV_INFO[kind];
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal devcard-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={info.name}>
+        <div className="modal-head">
+          <h3>{info.name}</h3>
+          <button className="link-btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="devcard-body">
+          <DevCardArt kind={kind} />
+          <p className="devcard-desc">{info.desc}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CostsModal({ onClose }: { onClose: () => void }) {
   return (
