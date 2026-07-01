@@ -61,6 +61,8 @@ input, select { font-family: inherit; font-size: 16px; } /* 16px avoids iOS zoom
 .btn.big { font-size: 18px; padding: 14px 22px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn.tool.active { outline: 2px solid var(--accent); background: var(--accent-2); }
+.btn.danger { background: transparent; border-color: rgba(214,69,69,0.6); color: var(--danger); padding: 10px 12px; }
+.btn.danger:active { background: rgba(214,69,69,0.15); }
 .link-btn {
   background: none; border: none; color: var(--accent);
   padding: 8px; font-size: 14px;

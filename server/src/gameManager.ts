@@ -21,6 +21,12 @@ const BOT_MOVE_DELAY_MS = 800; // paced so humans can follow the bot's moves
 // Active in-memory games (authoritative runtime state).
 const active = new Map<string, InternalGame>();
 
+// Notify hook, set by the WebSocket layer, to tell clients a game was deleted.
+let onDeleted: (gameId: string) => void = () => {};
+export function setOnDeleted(fn: (gameId: string) => void) {
+  onDeleted = fn;
+}
+
 // Broadcast hook, set by the WebSocket layer, used to push bot moves to clients.
 let broadcaster: (gameId: string) => void = () => {};
 export function setBroadcaster(fn: (gameId: string) => void) {
@@ -181,6 +187,32 @@ export function leaveLobby(gameId: string, userId: string): void {
     }
     db.prepare("DELETE FROM games WHERE id = ?").run(gameId);
   }
+}
+
+// Host deletes a game entirely (any phase). Removes it from the DB, cleans up
+// bot user rows and in-memory runtime, and notifies connected clients.
+export function deleteGame(gameId: string, userId: string): void {
+  const row = db.prepare("SELECT host_id FROM games WHERE id = ?").get(gameId) as
+    | { host_id: string }
+    | undefined;
+  if (!row) return; // already gone
+  if (row.host_id !== userId) throw new Error("Only the host can delete this game.");
+
+  const players = db
+    .prepare("SELECT user_id, is_bot FROM game_players WHERE game_id = ?")
+    .all(gameId) as { user_id: string; is_bot: number }[];
+  db.prepare("DELETE FROM games WHERE id = ?").run(gameId); // cascades game_players
+  for (const p of players) {
+    if (p.is_bot) db.prepare("DELETE FROM users WHERE id = ?").run(p.user_id);
+  }
+
+  active.delete(gameId);
+  const timer = botTimers.get(gameId);
+  if (timer) {
+    clearTimeout(timer);
+    botTimers.delete(gameId);
+  }
+  onDeleted(gameId); // let the WS layer kick anyone still in the room
 }
 
 export function startGame(gameId: string, userId: string): InternalGame {

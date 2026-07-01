@@ -19,6 +19,8 @@ export interface GameSocket {
   state: GameState | null;
   you: PlayerColor | null;
   error: string | null;
+  /** Set when the server closes this game (e.g. host deleted it). */
+  closedReason: string | null;
   send: (msg: ClientMessage) => void;
   clearError: () => void;
 }
@@ -29,6 +31,7 @@ export function useGameSocket(gameId: string | null): GameSocket {
   const [state, setState] = useState<GameState | null>(null);
   const [you, setYou] = useState<PlayerColor | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [closedReason, setClosedReason] = useState<string | null>(null);
 
   useEffect(() => {
     if (!gameId) return;
@@ -53,6 +56,9 @@ export function useGameSocket(gameId: string | null): GameSocket {
           setYou(msg.you);
         } else if (msg.type === "error") {
           setError(msg.message);
+        } else if (msg.type === "closed") {
+          closedByUs = true; // game is gone; don't try to reconnect
+          setClosedReason(msg.reason);
         }
       };
       ws.onclose = () => {
@@ -76,5 +82,5 @@ export function useGameSocket(gameId: string | null): GameSocket {
 
   const clearError = useCallback(() => setError(null), []);
 
-  return { connected, state, you, error, send, clearError };
+  return { connected, state, you, error, closedReason, send, clearError };
 }

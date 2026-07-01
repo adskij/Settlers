@@ -53,6 +53,17 @@ export function LobbyScreen({
     }
   };
 
+  const del = async (id: string) => {
+    setError(null);
+    if (!window.confirm("Delete this game for everyone? This can't be undone.")) return;
+    try {
+      await api.deleteGame(id);
+      await refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   return (
     <div className="lobby">
       <header className="topbar">
@@ -83,7 +94,7 @@ export function LobbyScreen({
         {mine.length > 0 && (
           <section className="card">
             <h2>Your games</h2>
-            <GameList games={mine} userId={user.id} onEnter={onEnterGame} />
+            <GameList games={mine} userId={user.id} onEnter={onEnterGame} onDelete={del} />
           </section>
         )}
 
@@ -99,9 +110,20 @@ export function LobbyScreen({
                     <strong>{g.name}</strong>
                     <span className="muted"> · {g.players.length}/4</span>
                   </div>
-                  <button className="btn" onClick={() => join(g.id)}>
-                    {g.players.some((p) => p.userId === user.id) ? "Open" : "Join"}
-                  </button>
+                  <div className="row">
+                    <button className="btn" onClick={() => join(g.id)}>
+                      {g.players.some((p) => p.userId === user.id) ? "Open" : "Join"}
+                    </button>
+                    {g.hostId === user.id && (
+                      <button
+                        className="btn danger"
+                        title="Delete game"
+                        onClick={() => del(g.id)}
+                      >
+                        🗑
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -116,10 +138,12 @@ function GameList({
   games,
   userId,
   onEnter,
+  onDelete,
 }: {
   games: LobbyGame[];
   userId: string;
   onEnter: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   return (
     <ul className="game-list">
@@ -132,9 +156,20 @@ function GameList({
               · {g.phase === "lobby" ? "waiting" : g.phase} · {g.players.length}/4
             </span>
           </div>
-          <button className="btn" onClick={() => onEnter(g.id)}>
-            Open
-          </button>
+          <div className="row">
+            <button className="btn" onClick={() => onEnter(g.id)}>
+              Open
+            </button>
+            {g.hostId === userId && (
+              <button
+                className="btn danger"
+                title="Delete game"
+                onClick={() => onDelete(g.id)}
+              >
+                🗑
+              </button>
+            )}
+          </div>
         </li>
       ))}
     </ul>

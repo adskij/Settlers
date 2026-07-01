@@ -47,7 +47,8 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: "state"; state: GameState; you: PlayerColor | null }
   | { type: "error"; message: string }
-  | { type: "info"; message: string };
+  | { type: "info"; message: string }
+  | { type: "closed"; reason: string };
 
 export interface DevCardPlayPayload {
   card: DevCardKind;
