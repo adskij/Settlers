@@ -473,6 +473,8 @@ input, select {
 .sk-badge.active small { background: #1f5b34; color: #b9f0cd; }
 .sk-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
+.fleet-note { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #9fd0ef; }
+
 .barbarian-tracker {
   background: var(--card); border: 1px solid var(--bg-2); border-radius: 10px;
   padding: 8px 10px; margin-top: 8px; display: flex; flex-direction: column; gap: 6px;
