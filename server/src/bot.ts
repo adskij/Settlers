@@ -5,7 +5,13 @@
 import {
   BUILD_COSTS,
   RESOURCES,
+  COMMODITIES,
+  IMPROVEMENT_TRACKS,
+  TRACK_COMMODITY,
+  MAX_IMPROVEMENT_LEVEL,
+  improvementCost,
   type GameState,
+  type ImprovementTrack,
   type PlayerColor,
   type PlayerState,
   type Resource,
@@ -412,6 +418,8 @@ function botMoveRobber(game: InternalGame, color: PlayerColor): boolean {
 function botDiscard(game: InternalGame, p: PlayerState): boolean {
   const owed = game.state.pendingDiscards[p.color] ?? 0;
   if (owed <= 0) return false;
+  // Shed plain resources first, keeping commodities (they buy improvements),
+  // but fall back to commodities if resources alone can't cover the debt (C&K).
   const counts = RESOURCES.map((r) => ({ r, n: p.resources[r] })).sort((a, b) => b.n - a.n);
   const out: Partial<ResourceCounts> = {};
   let left = owed;
@@ -423,7 +431,23 @@ function botDiscard(game: InternalGame, p: PlayerState): boolean {
       left -= take;
     }
   }
-  return act(game, p.color, { type: "discard", resources: out });
+  const comOut: Partial<Record<string, number>> = {};
+  if (left > 0 && p.commodities) {
+    const cc = COMMODITIES.map((c) => ({ c, n: p.commodities![c] })).sort((a, b) => b.n - a.n);
+    for (const { c, n } of cc) {
+      if (left <= 0) break;
+      const take = Math.min(n, left);
+      if (take > 0) {
+        comOut[c] = take;
+        left -= take;
+      }
+    }
+  }
+  return act(game, p.color, {
+    type: "discard",
+    resources: out,
+    commodities: comOut as any,
+  });
 }
 
 // ---- Trading ----
@@ -498,6 +522,28 @@ function handleBotTrade(
   return "continue";
 }
 
+// ---- Cities & Knights: city improvements ----
+
+// The most valuable affordable city improvement to buy now: prefer tracks
+// nearest a metropolis (level 4), so commodities turn into victory points and
+// don't just pile up to be discarded on a 7.
+function chooseImprovement(me: PlayerState): ImprovementTrack | null {
+  if (!me.improvements || !me.commodities) return null;
+  let best: ImprovementTrack | null = null;
+  let bestLevel = -1;
+  for (const track of IMPROVEMENT_TRACKS) {
+    const level = me.improvements[track];
+    if (level >= MAX_IMPROVEMENT_LEVEL) continue;
+    const cost = improvementCost(level + 1);
+    if (me.commodities[TRACK_COMMODITY[track]] < cost) continue;
+    if (level > bestLevel) {
+      bestLevel = level;
+      best = track;
+    }
+  }
+  return best;
+}
+
 // ---- Main phase: build, trade toward a build, else end the turn ----
 
 function botMain(game: InternalGame, color: PlayerColor): boolean {
@@ -506,6 +552,10 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
 
   // Drop any trade state left over from a previous turn.
   if (game.botTrade && game.botTrade.color !== color) game.botTrade = null;
+
+  // 0. C&K: spend commodities on city improvements (metropolis = +2 VP).
+  const track = chooseImprovement(me);
+  if (track && act(game, color, { type: "buy_improvement", track })) return true;
 
   // 1. Upgrade a settlement to a city.
   if (canAfford(me, BUILD_COSTS.city)) {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   PLAYER_COLORS,
   type ClientMessage,
+  type GameVariant,
   type PlayerColor,
 } from "@settlers/shared";
 import { db, type GamePlayerRow, type GameRow } from "./db.js";
@@ -46,17 +47,23 @@ export interface LobbyGame {
   name: string;
   hostId: string;
   phase: string;
+  variant: GameVariant;
   players: LobbyPlayer[];
 }
 
-export function createLobby(hostId: string, name: string): LobbyGame {
+export function createLobby(
+  hostId: string,
+  name: string,
+  variant: GameVariant = "base"
+): LobbyGame {
   const id = randomUUID();
   const now = Date.now();
   const seed = (Math.random() * 0x7fffffff) | 0;
+  const v: GameVariant = variant === "cities_and_knights" ? "cities_and_knights" : "base";
   db.prepare(
-    `INSERT INTO games (id, name, host_id, seed, phase, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'lobby', ?, ?)`
-  ).run(id, name.trim() || "New Game", hostId, seed, now, now);
+    `INSERT INTO games (id, name, host_id, seed, phase, variant, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'lobby', ?, ?, ?)`
+  ).run(id, name.trim() || "New Game", hostId, seed, v, now, now);
   joinLobby(id, hostId);
   return getLobby(id)!;
 }
@@ -87,6 +94,7 @@ export function getLobby(id: string): LobbyGame | null {
     name: game.name,
     hostId: game.host_id,
     phase: game.phase,
+    variant: (game.variant as GameVariant) ?? "base",
     players,
   };
 }
@@ -231,7 +239,9 @@ export function startGame(gameId: string, userId: string): InternalGame {
     color: p.color,
     isBot: p.isBot,
   }));
-  const game = createGame(gameId, row.seed, seats);
+  const variant: GameVariant =
+    (row.variant as GameVariant) === "cities_and_knights" ? "cities_and_knights" : "base";
+  const game = createGame(gameId, row.seed, seats, variant);
   active.set(gameId, game);
   persist(gameId);
   scheduleBots(gameId); // in case seat 0 is a bot

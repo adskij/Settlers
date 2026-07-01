@@ -24,6 +24,7 @@ db.exec(`
     host_id TEXT NOT NULL,
     seed INTEGER NOT NULL,
     phase TEXT NOT NULL DEFAULT 'lobby',
+    variant TEXT NOT NULL DEFAULT 'base',
     state_json TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -54,6 +55,12 @@ if (!gamePlayerCols.some((c) => c.name === "name")) {
   db.exec("ALTER TABLE game_players ADD COLUMN name TEXT");
 }
 
+// Migration for databases created before the Cities & Knights variant.
+const gameCols = db.prepare("PRAGMA table_info(games)").all() as { name: string }[];
+if (!gameCols.some((c) => c.name === "variant")) {
+  db.exec("ALTER TABLE games ADD COLUMN variant TEXT NOT NULL DEFAULT 'base'");
+}
+
 export interface UserRow {
   id: string;
   username: string;
@@ -67,6 +74,7 @@ export interface GameRow {
   host_id: string;
   seed: number;
   phase: string;
+  variant: string;
   state_json: string | null;
   created_at: number;
   updated_at: number;

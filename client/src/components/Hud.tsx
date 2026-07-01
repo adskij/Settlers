@@ -2,10 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import {
   BUILD_COSTS,
   RESOURCES,
+  COMMODITIES,
+  IMPROVEMENT_TRACKS,
+  TRACK_COMMODITY,
+  MAX_IMPROVEMENT_LEVEL,
+  METROPOLIS_LEVEL,
+  improvementCost,
   VICTORY_POINTS_TO_WIN,
+  CK_VICTORY_POINTS_TO_WIN,
   type ClientMessage,
+  type Commodity,
   type DevCardKind,
   type GameState,
+  type ImprovementTrack,
   type PlayerColor,
   type PlayerState,
   type Resource,
@@ -20,6 +29,31 @@ const RES_ICON: Record<Resource, string> = {
   grain: "🌾",
   ore: "⛰️",
 };
+
+const COMMODITY_ICON: Record<Commodity, string> = {
+  coin: "🪙",
+  paper: "📜",
+  cloth: "🧵",
+};
+
+const TRACK_META: Record<ImprovementTrack, { icon: string; label: string; metro: string }> = {
+  trade: { icon: "🧵", label: "Trade", metro: "Market → Trading House → Merchant Guild" },
+  politics: { icon: "🪙", label: "Politics", metro: "Town Hall → Fortress → Capitol" },
+  science: { icon: "📜", label: "Science", metro: "Library → University → Great Wonder" },
+};
+
+function isCK(state: GameState): boolean {
+  return state.variant === "cities_and_knights";
+}
+
+function winTargetOf(state: GameState): number {
+  return isCK(state) ? CK_VICTORY_POINTS_TO_WIN : VICTORY_POINTS_TO_WIN;
+}
+
+function commodityTotal(p: PlayerState): number {
+  if (!p.commodities) return 0;
+  return COMMODITIES.reduce((s, c) => s + (p.commodities![c] ?? 0), 0);
+}
 
 const DEV_META: Record<DevCardKind, { icon: string; label: string }> = {
   knight: { icon: "⚔️", label: "Knight" },
@@ -90,6 +124,11 @@ function publicVP(state: GameState, color: PlayerColor): number {
   if (p) vp += p.victoryPointCards; // 0 for others until game ends
   if (state.largestArmyOwner === color) vp += 2;
   if (state.longestRoadOwner === color) vp += 2;
+  if (state.metropolisOwner) {
+    for (const track of IMPROVEMENT_TRACKS) {
+      if (state.metropolisOwner[track] === color) vp += 2; // C&K metropolis
+    }
+  }
   return vp;
 }
 
@@ -128,7 +167,8 @@ export function Hud({
 }) {
   const me = state.players.find((p) => p.color === you) ?? null;
   const isYourTurn = state.players[state.currentPlayerIndex]?.color === you;
-  const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev">("none");
+  const ck = isCK(state);
+  const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev" | "improve">("none");
   const [showCosts, setShowCosts] = useState(false);
   const [infoCard, setInfoCard] = useState<DevCardKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -167,7 +207,7 @@ export function Hud({
   return (
     <div className="hud">
       {error && <div className="toast error" onClick={clearError}>{error}</div>}
-      {showCosts && <CostsModal onClose={() => setShowCosts(false)} />}
+      {showCosts && <CostsModal winTarget={winTargetOf(state)} onClose={() => setShowCosts(false)} />}
       {infoCard && <DevCardInfoModal kind={infoCard} onClose={() => setInfoCard(null)} />}
 
       {/* Players strip: a card per player with VP + hand clearly shown */}
@@ -205,6 +245,12 @@ export function Hud({
                   <i className="mini-card dev" />
                   {devCount}
                 </span>
+                {ck && (
+                  <span className="pc-pill" title="Commodity cards in hand">
+                    <i className="mini-card com" />
+                    {commodityTotal(p)}
+                  </span>
+                )}
               </div>
               <div className="pc-tags">
                 {state.longestRoadOwner === p.color && (
@@ -213,6 +259,12 @@ export function Hud({
                 {state.largestArmyOwner === p.color && (
                   <span className="pc-tag" title="Largest Army (+2 VP)">🎖️</span>
                 )}
+                {ck && state.metropolisOwner &&
+                  IMPROVEMENT_TRACKS.filter((t) => state.metropolisOwner![t] === p.color).map((t) => (
+                    <span key={t} className="pc-tag" title={`${TRACK_META[t].label} metropolis (+2 VP)`}>
+                      🏛️
+                    </span>
+                  ))}
                 {p.playedKnights > 0 && (
                   <span className="pc-tag muted" title="Knights played">
                     ⚔️ {p.playedKnights}
@@ -285,7 +337,7 @@ export function Hud({
             <div className="vp-badge" title="Your victory points (incl. hidden cards)">
               <span className="vp-star">★</span>
               <span className="vp-count">{publicVP(state, me.color)}</span>
-              <span className="vp-of">/ {VICTORY_POINTS_TO_WIN}</span>
+              <span className="vp-of">/ {winTargetOf(state)}</span>
               <span className="vp-text">Victory Points</span>
             </div>
             <button
@@ -306,6 +358,32 @@ export function Hud({
               </div>
             ))}
           </div>
+
+          {ck && me.commodities && (
+            <div className="res-cards commodity-cards">
+              {COMMODITIES.map((c) => (
+                <div key={c} className={`res-card com-${c}`} title={c}>
+                  <span className="rc-icon">{COMMODITY_ICON[c]}</span>
+                  <span className="rc-name">{c}</span>
+                  <span className="rc-count">{me.commodities![c]}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {ck && me.improvements && (
+            <div className="improve-track-row">
+              {IMPROVEMENT_TRACKS.map((t) => (
+                <span key={t} className="improve-chip" title={`${TRACK_META[t].label} level`}>
+                  {TRACK_META[t].icon}
+                  <em>
+                    {me.improvements![t]}
+                    {state.metropolisOwner?.[t] === me.color ? "🏛️" : ""}
+                  </em>
+                </span>
+              ))}
+            </div>
+          )}
 
           {devHand(me).length > 0 && (
             <div className="dev-hand">
@@ -362,6 +440,11 @@ export function Hud({
               <ToolBtn label="🏙️ City" active={buildMode === "city"} onClick={() => setBuildMode(buildMode === "city" ? null : "city")} />
               <button className="btn" onClick={() => send({ type: "buy_dev_card" })}>🃏 Buy</button>
               <button className="btn" onClick={() => setPanel(panel === "dev" ? "none" : "dev")}>Play card</button>
+              {ck && (
+                <button className="btn" onClick={() => setPanel(panel === "improve" ? "none" : "improve")}>
+                  🏛️ Improve
+                </button>
+              )}
               <button className="btn" onClick={() => setPanel(panel === "bank" ? "none" : "bank")}>🏦 Bank</button>
               <button className="btn" onClick={() => setPanel(panel === "trade" ? "none" : "trade")}>🤝 Offer</button>
               <button className="btn primary" onClick={() => send({ type: "end_turn" })}>End turn ⏭️</button>
@@ -376,6 +459,9 @@ export function Hud({
           )}
           {isYourTurn && state.phase === "main" && panel === "dev" && me && (
             <DevPanel me={me} send={send} onPlayed={() => setPanel("none")} />
+          )}
+          {isYourTurn && state.phase === "main" && panel === "improve" && me && ck && (
+            <ImprovePanel state={state} me={me} send={send} />
           )}
         </>
       )}
@@ -585,7 +671,7 @@ function DevCardInfoModal({ kind, onClose }: { kind: DevCardKind; onClose: () =>
   );
 }
 
-function CostsModal({ onClose }: { onClose: () => void }) {
+function CostsModal({ winTarget, onClose }: { winTarget: number; onClose: () => void }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal cost-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Building costs">
@@ -614,7 +700,7 @@ function CostsModal({ onClose }: { onClose: () => void }) {
             </li>
           ))}
         </ul>
-        <p className="cost-foot">First to {VICTORY_POINTS_TO_WIN} victory points wins.</p>
+        <p className="cost-foot">First to {winTarget} victory points wins.</p>
       </div>
     </div>
   );
@@ -640,9 +726,17 @@ function DiscardPanel({
   const [sel, setSel] = useState<Record<Resource, number>>({
     brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0,
   });
-  const chosen = RESOURCES.reduce((s, r) => s + sel[r], 0);
+  const [comSel, setComSel] = useState<Record<Commodity, number>>({
+    coin: 0, paper: 0, cloth: 0,
+  });
+  const hasCommodities = !!me.commodities;
+  const chosen =
+    RESOURCES.reduce((s, r) => s + sel[r], 0) +
+    COMMODITIES.reduce((s, c) => s + comSel[c], 0);
   const bump = (r: Resource, d: number) =>
     setSel((s) => ({ ...s, [r]: Math.max(0, Math.min(me.resources[r], s[r] + d)) }));
+  const bumpCom = (c: Commodity, d: number) =>
+    setComSel((s) => ({ ...s, [c]: Math.max(0, Math.min(me.commodities?.[c] ?? 0, s[c] + d)) }));
 
   return (
     <div className="panel discard-panel">
@@ -656,11 +750,20 @@ function DiscardPanel({
             <button className="btn sm" onClick={() => bump(r, 1)}>+</button>
           </div>
         ))}
+        {hasCommodities &&
+          COMMODITIES.map((c) => (
+            <div key={c} className="picker-row">
+              <span>{COMMODITY_ICON[c]} {me.commodities![c]}</span>
+              <button className="btn sm" onClick={() => bumpCom(c, -1)}>−</button>
+              <span className="picker-val">{comSel[c]}</span>
+              <button className="btn sm" onClick={() => bumpCom(c, 1)}>+</button>
+            </div>
+          ))}
       </div>
       <button
         className="btn primary"
         disabled={chosen !== owed}
-        onClick={() => send({ type: "discard", resources: sel })}
+        onClick={() => send({ type: "discard", resources: sel, commodities: hasCommodities ? comSel : undefined })}
       >
         Discard
       </button>
@@ -785,6 +888,65 @@ function DevPanel({
       {!has("knight") && !has("road_building") && !has("monopoly") && !has("year_of_plenty") && (
         <span className="muted">No playable cards (newly bought cards wait until next turn).</span>
       )}
+    </div>
+  );
+}
+
+// Cities & Knights: spend commodities to advance the three improvement tracks.
+function ImprovePanel({
+  state,
+  me,
+  send,
+}: {
+  state: GameState;
+  me: PlayerState;
+  send: (msg: ClientMessage) => void;
+}) {
+  if (!me.improvements || !me.commodities) return null;
+  return (
+    <div className="panel improve-panel">
+      {IMPROVEMENT_TRACKS.map((track) => {
+        const level = me.improvements![track];
+        const commodity = TRACK_COMMODITY[track];
+        const maxed = level >= MAX_IMPROVEMENT_LEVEL;
+        const cost = improvementCost(level + 1);
+        const have = me.commodities![commodity];
+        const affordable = !maxed && have >= cost;
+        const owner = state.metropolisOwner?.[track] ?? null;
+        const nextIsMetro = level + 1 === METROPOLIS_LEVEL;
+        return (
+          <div key={track} className="improve-line">
+            <div className="improve-head">
+              <span className="improve-name">
+                {TRACK_META[track].icon} {TRACK_META[track].label}
+              </span>
+              <span className="improve-level">
+                Lvl {level}/{MAX_IMPROVEMENT_LEVEL}
+                {owner === me.color && <span className="metro-flag" title="You hold this metropolis"> 🏛️</span>}
+              </span>
+            </div>
+            <div className="improve-buy">
+              {maxed ? (
+                <span className="muted">Maxed out.</span>
+              ) : (
+                <>
+                  <span className="improve-cost">
+                    {cost} {COMMODITY_ICON[commodity]} <small>(have {have})</small>
+                    {nextIsMetro && <em className="metro-hint"> → metropolis +2 VP</em>}
+                  </span>
+                  <button
+                    className="btn sm primary"
+                    disabled={!affordable}
+                    onClick={() => send({ type: "buy_improvement", track })}
+                  >
+                    Build
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

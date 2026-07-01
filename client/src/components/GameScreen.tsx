@@ -228,6 +228,11 @@ function WaitingRoom({
       </header>
       <div className="card waiting-card">
         <h2>{lobby.name}</h2>
+        <p className="ruleset-line muted">
+          {lobby.variant === "cities_and_knights"
+            ? "🏰 Cities & Knights · first to 13 VP"
+            : "⚓ Base game · first to 10 VP"}
+        </p>
 
         {/* Invite link */}
         <div className="invite">

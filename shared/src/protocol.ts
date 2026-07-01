@@ -4,6 +4,8 @@ import type {
   PlayerColor,
   Resource,
   ResourceCounts,
+  CommodityCounts,
+  ImprovementTrack,
   DevCardKind,
 } from "./types.js";
 
@@ -25,7 +27,13 @@ export type ClientMessage =
   | { type: "play_year_of_plenty"; resources: [Resource, Resource] }
   | { type: "play_monopoly"; resource: Resource }
   | { type: "move_robber"; hexId: number; stealFrom: PlayerColor | null }
-  | { type: "discard"; resources: Partial<ResourceCounts> }
+  | {
+      type: "discard";
+      resources: Partial<ResourceCounts>;
+      /** C&K: commodities also count toward the hand limit. */
+      commodities?: Partial<CommodityCounts>;
+    }
+  | { type: "buy_improvement"; track: ImprovementTrack }
   | {
       type: "offer_trade";
       to: PlayerColor | null;

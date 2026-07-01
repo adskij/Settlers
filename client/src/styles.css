@@ -393,6 +393,53 @@ input, select {
   border-radius: 10px; z-index: 50; max-width: 90vw; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 }
 
+/* ---- Cities & Knights ---- */
+.variant-picker { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.variant-label { font-size: 13px; color: var(--muted); font-weight: 700; }
+.variant-seg {
+  display: inline-flex; border-radius: 9px; overflow: hidden;
+  border: 1px solid var(--bg-2); background: var(--bg-2);
+}
+.variant-opt {
+  border: none; background: transparent; color: var(--text);
+  padding: 7px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.variant-opt.on { background: var(--accent); color: #fff; }
+.variant-hint { font-size: 12px; margin: 6px 0 0; }
+.ck-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px;
+  background: linear-gradient(160deg, #b8801f, #7a5326); color: #fff;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.03em; vertical-align: middle;
+}
+.ruleset-line { font-size: 13px; margin: 2px 0 12px; }
+
+.mini-card.com { background: linear-gradient(135deg, #c9a24a, #7a5f18); }
+.commodity-cards { margin-top: 6px; }
+.com-coin { background-image: linear-gradient(160deg, #e6c65a, #b0891f); color: #3a2c00; }
+.com-coin .rc-name { text-shadow: none; }
+.com-paper { background-image: linear-gradient(160deg, #e7ddc3, #b7a884); color: #3a2c00; }
+.com-paper .rc-name { text-shadow: none; }
+.com-cloth { background-image: linear-gradient(160deg, #c98fb6, #8a4f77); }
+
+.improve-track-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.improve-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-2); border-radius: 7px; padding: 4px 9px;
+  font-size: 15px; font-weight: 700;
+}
+.improve-chip em { font-style: normal; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+.improve-panel { display: flex; flex-direction: column; gap: 10px; }
+.improve-line { border: 1px solid var(--bg-2); border-radius: 9px; padding: 8px 10px; }
+.improve-head { display: flex; justify-content: space-between; align-items: center; }
+.improve-name { font-weight: 800; font-size: 14px; }
+.improve-level { font-size: 12px; color: var(--muted); font-weight: 700; }
+.improve-buy { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.improve-cost { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.improve-cost small { color: var(--muted); font-weight: 600; }
+.metro-hint { color: #d8a52a; font-style: normal; font-weight: 800; font-size: 12px; }
+.metro-flag { color: #d8a52a; }
+
 /* ---- Larger screens: board beside HUD ---- */
 @media (min-width: 900px) and (orientation: landscape) {
   .game-screen { flex-direction: row; flex-wrap: wrap; }
