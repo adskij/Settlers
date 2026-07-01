@@ -233,6 +233,28 @@ function handSize(p: PlayerState): number {
   return totalResources(p) + totalCommodities(p);
 }
 
+// Ensure each track's metropolis marker sits on exactly one CITY of its owner.
+// A metropolis is always a city — never a settlement — so if the owner has no
+// city yet the marker is deferred until they build one (their VP still counts).
+function syncMetropolisMarkers(state: GameState) {
+  if (!state.metropolisOwner) return;
+  for (const track of IMPROVEMENT_TRACKS) {
+    const owner = state.metropolisOwner[track];
+    // Clear stale markers: wrong owner, no owner, or sitting on a settlement.
+    for (const b of state.buildings) {
+      if (b.metropolis === track && (!owner || b.owner !== owner || b.kind !== "city"))
+        delete b.metropolis;
+    }
+    if (!owner) continue;
+    if (state.buildings.some((b) => b.metropolis === track && b.owner === owner)) continue;
+    // Place it on one of the owner's cities that isn't already a metropolis.
+    const city = state.buildings.find(
+      (b) => b.owner === owner && b.kind === "city" && !b.metropolis
+    );
+    if (city) city.metropolis = track;
+  }
+}
+
 // Recompute which player owns each track's metropolis: the player with the
 // strictly highest level >= METROPOLIS_LEVEL, keeping the current holder on ties
 // (first-to-reach keeps it until someone strictly surpasses them).
@@ -242,9 +264,8 @@ function updateMetropolis(state: GameState, track: ImprovementTrack) {
   const currentLevel = current
     ? playerByColor(state, current)?.improvements?.[track] ?? 0
     : -1;
-  let owner = current;
-  let bestLevel = current && currentLevel >= METROPOLIS_LEVEL ? currentLevel : -1;
-  if (bestLevel < METROPOLIS_LEVEL) owner = null; // holder slipped below (can't happen, but safe)
+  let owner = current && currentLevel >= METROPOLIS_LEVEL ? current : null;
+  let bestLevel = owner ? currentLevel : -1;
   for (const p of state.players) {
     const lvl = p.improvements?.[track] ?? 0;
     if (lvl >= METROPOLIS_LEVEL && lvl > bestLevel) {
@@ -254,17 +275,9 @@ function updateMetropolis(state: GameState, track: ImprovementTrack) {
   }
   if (owner !== current) {
     state.metropolisOwner[track] = owner;
-    // Move the visible metropolis marker onto (a city of) the new owner.
-    for (const b of state.buildings) {
-      if (b.metropolis === track) delete b.metropolis;
-    }
-    if (owner) {
-      const city = state.buildings.find((b) => b.owner === owner && b.kind === "city")
-        ?? state.buildings.find((b) => b.owner === owner);
-      if (city) city.metropolis = track;
-      log(state, `${nameOf(state, owner)} built the ${track} metropolis (+2 VP).`);
-    }
+    if (owner) log(state, `${nameOf(state, owner)} built the ${track} metropolis (+2 VP).`);
   }
+  syncMetropolisMarkers(state);
 }
 
 // Settlements give 1 VP, cities 2, plus dev-card VPs and bonuses.
@@ -731,8 +744,8 @@ function buildCity(game: InternalGame, color: PlayerColor, vertexId: number, isC
   pay(actor, BUILD_COSTS.city);
   existing.kind = "city";
   log(state, `${actor.name} upgraded to a city.`);
-  // A new city can host a metropolis the owner already earned but couldn't place.
-  if (isCK(state)) for (const t of IMPROVEMENT_TRACKS) updateMetropolis(state, t);
+  // A new city can host a metropolis the owner earned earlier but couldn't place.
+  if (isCK(state)) syncMetropolisMarkers(state);
   checkWin(state);
   return ok();
 }
