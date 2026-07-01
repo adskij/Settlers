@@ -114,6 +114,8 @@ export interface BuildingPiece {
   vertexId: number;
   /** C&K: this city has been raised to a metropolis for the given track. */
   metropolis?: ImprovementTrack;
+  /** C&K: this city has a wall (raises its owner's discard limit). */
+  wall?: boolean;
 }
 
 export interface RoadPiece {
@@ -144,6 +146,14 @@ export interface PlayerState {
   improvements?: ImprovementLevels;
   /** C&K: Defender of Catan tokens earned repelling barbarians (+1 VP each). */
   defenderTokens?: number;
+  /** C&K: progress cards in hand (hidden from other players). */
+  progressCards?: ProgressCardKind[];
+  /** C&K: number of city walls built (raises the discard limit). */
+  cityWalls?: number;
+  /** C&K: Merchant-Fleet bonus active this turn (bank trades are 2:1). */
+  tradeFleetTurn?: boolean;
+  /** C&K: Crane bonus active (next improvement costs 1 fewer commodity). */
+  craneTurn?: boolean;
 }
 
 export type GamePhase =
@@ -205,6 +215,10 @@ export interface GameState {
   eventDie?: EventDie | null;
   /** C&K: barbarian ship position (0..BARBARIAN_TRACK_LENGTH). */
   barbarianStep?: number;
+  /** C&K: who holds the Merchant (+1 VP), if anyone. */
+  merchantOwner?: PlayerColor | null;
+  /** C&K: remaining cards in each progress deck (contents hidden). */
+  progressDeckCounts?: Record<ImprovementTrack, number>;
   updatedAt: number;
 }
 
@@ -240,6 +254,82 @@ export const KNIGHT_RANK_NAME: Record<KnightRank, string> = {
 // ---- Barbarians ----
 /** Steps the barbarian ship advances before it attacks Catan. */
 export const BARBARIAN_TRACK_LENGTH = 7;
+
+// ---- Progress cards ----
+// Drawn from the deck matching the event-die gate (trade/politics/science) when
+// a player's improvement level meets the red die. One deck per improvement track.
+export type ProgressCardKind =
+  // Trade (drawn on the yellow trade gate)
+  | "master_merchant"
+  | "merchant"
+  | "merchant_fleet"
+  | "resource_monopoly"
+  | "trade_monopoly"
+  | "commercial_harbor"
+  // Politics (blue gate)
+  | "warlord"
+  | "smith"
+  | "bishop"
+  | "saboteur"
+  | "spy"
+  | "wedding"
+  // Science (green gate)
+  | "alchemist"
+  | "crane"
+  | "engineer"
+  | "irrigation"
+  | "mining"
+  | "printer";
+
+/** Which improvement track's deck a progress card belongs to. */
+export const PROGRESS_DECK: Record<ImprovementTrack, ProgressCardKind[]> = {
+  trade: [
+    "master_merchant",
+    "merchant",
+    "merchant_fleet",
+    "resource_monopoly",
+    "trade_monopoly",
+    "commercial_harbor",
+  ],
+  politics: ["warlord", "smith", "bishop", "saboteur", "spy", "wedding"],
+  science: ["alchemist", "crane", "engineer", "irrigation", "mining", "printer"],
+};
+
+/** Copies of each card in its deck. */
+export const PROGRESS_CARD_COPIES = 2;
+
+/** Max progress cards a player may hold. */
+export const PROGRESS_HAND_LIMIT = 4;
+
+export const PROGRESS_CARD_INFO: Record<
+  ProgressCardKind,
+  { name: string; deck: ImprovementTrack; icon: string; desc: string }
+> = {
+  master_merchant: { name: "Master Merchant", deck: "trade", icon: "💰", desc: "Steal 2 random cards from the player with the most victory points." },
+  merchant: { name: "Merchant", deck: "trade", icon: "🏪", desc: "Take the Merchant — worth 1 victory point until another player plays this card." },
+  merchant_fleet: { name: "Merchant Fleet", deck: "trade", icon: "⛵", desc: "For the rest of this turn, all of your bank trades are 2:1." },
+  resource_monopoly: { name: "Resource Monopoly", deck: "trade", icon: "📦", desc: "Take up to 2 of a named resource from every opponent." },
+  trade_monopoly: { name: "Trade Monopoly", deck: "trade", icon: "🧾", desc: "Take 1 of a named commodity from every opponent." },
+  commercial_harbor: { name: "Commercial Harbor", deck: "trade", icon: "⚓", desc: "Take a commodity from each opponent, giving each a resource in return." },
+  warlord: { name: "Warlord", deck: "politics", icon: "🎖️", desc: "Activate all of your knights for free." },
+  smith: { name: "Smith", deck: "politics", icon: "🔨", desc: "Promote up to two of your knights one rank each, for free." },
+  bishop: { name: "Bishop", deck: "politics", icon: "⛪", desc: "Move the robber, then steal a card from every player next to its new hex." },
+  saboteur: { name: "Saboteur", deck: "politics", icon: "🧨", desc: "Every player with as many victory points as you discards half their hand." },
+  spy: { name: "Spy", deck: "politics", icon: "🕵️", desc: "Take a random progress card from the player holding the most." },
+  wedding: { name: "Wedding", deck: "politics", icon: "💍", desc: "Each player with more victory points than you gives you 2 cards." },
+  alchemist: { name: "Alchemist", deck: "science", icon: "⚗️", desc: "Take any 2 resources from the bank." },
+  crane: { name: "Crane", deck: "science", icon: "🏗️", desc: "Your next city improvement costs 1 fewer commodity." },
+  engineer: { name: "Engineer", deck: "science", icon: "🧱", desc: "Build a city wall on one of your cities for free." },
+  irrigation: { name: "Irrigation", deck: "science", icon: "🌾", desc: "Gain 2 grain for each field bordering your buildings." },
+  mining: { name: "Mining", deck: "science", icon: "⛏️", desc: "Gain 2 ore for each mountain bordering your buildings." },
+  printer: { name: "Printer", deck: "science", icon: "🖨️", desc: "Worth 1 victory point, kept hidden in your hand." },
+};
+
+export const CITY_WALL_COST: Partial<ResourceCounts> = { brick: 2 };
+/** Each city wall raises your discard limit by this many cards. */
+export const CITY_WALL_HAND_BONUS = 2;
+/** Max city walls a single player may build. */
+export const MAX_CITY_WALLS = 3;
 
 export const BUILD_COSTS: Record<string, Partial<ResourceCounts>> = {
   road: { brick: 1, lumber: 1 },

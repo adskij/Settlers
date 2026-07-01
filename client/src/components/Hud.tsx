@@ -18,6 +18,9 @@ import {
   KNIGHT_ACTIVATE_COST,
   KNIGHT_PROMOTE_COST,
   BARBARIAN_TRACK_LENGTH,
+  PROGRESS_CARD_INFO,
+  PROGRESS_HAND_LIMIT,
+  MAX_CITY_WALLS,
   type ClientMessage,
   type Commodity,
   type DevCardKind,
@@ -26,6 +29,7 @@ import {
   type KnightPiece,
   type PlayerColor,
   type PlayerState,
+  type ProgressCardKind,
   type Resource,
   type ResourceCounts,
 } from "@settlers/shared";
@@ -193,7 +197,9 @@ export function Hud({
   const ck = isCK(state);
   const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev" | "improve" | "knights">("none");
   const [showCosts, setShowCosts] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [infoCard, setInfoCard] = useState<DevCardKind | null>(null);
+  const [progCard, setProgCard] = useState<ProgressCardKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Tick once a second while any offer has a countdown, to refresh the timer.
@@ -231,7 +237,20 @@ export function Hud({
     <div className="hud">
       {error && <div className="toast error" onClick={clearError}>{error}</div>}
       {showCosts && <CostsModal winTarget={winTargetOf(state)} onClose={() => setShowCosts(false)} />}
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       {infoCard && <DevCardInfoModal kind={infoCard} onClose={() => setInfoCard(null)} />}
+      {progCard && (
+        <ProgressCardModal
+          kind={progCard}
+          me={me}
+          canPlay={isYourTurn && state.phase === "main"}
+          onPlay={(msg) => {
+            send(msg);
+            setProgCard(null);
+          }}
+          onClose={() => setProgCard(null)}
+        />
+      )}
 
       {/* Players strip: a card per player with VP + hand clearly shown */}
       <div className="players-strip">
@@ -383,6 +402,15 @@ export function Hud({
             >
               📋 Costs
             </button>
+            {ck && (
+              <button
+                className="btn sm costs-btn"
+                onClick={() => setShowRules(true)}
+                title="How Cities & Knights works"
+              >
+                📖 C&amp;K Rules
+              </button>
+            )}
           </div>
 
           <div className="res-cards">
@@ -442,6 +470,27 @@ export function Hud({
               ))}
             </div>
           )}
+
+          {ck && me.progressCards && me.progressCards.length > 0 && (
+            <div className="dev-hand progress-hand">
+              {me.progressCards.map((card, i) => {
+                const info = PROGRESS_CARD_INFO[card];
+                return (
+                  <button
+                    key={`${card}-${i}`}
+                    type="button"
+                    className={`dev-card-mini prog-${info.deck}`}
+                    title="Tap to read and play this progress card"
+                    onClick={() => setProgCard(card)}
+                  >
+                    <span className="dc-icon">{info.icon}</span>
+                    <span className="dc-label">{info.name}</span>
+                    <span className="dc-info" aria-hidden>ⓘ</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -453,6 +502,11 @@ export function Hud({
       {isYourTurn && buildMode === "knight" && (
         <div className="prompt-bar knight-hint">
           <span className="prompt-hot">⚔️ Tap a highlighted spot to place your knight.</span>
+        </div>
+      )}
+      {isYourTurn && buildMode === "wall" && (
+        <div className="prompt-bar knight-hint">
+          <span className="prompt-hot">🧱 Tap one of your cities to build a wall.</span>
         </div>
       )}
       {isYourTurn && knightMoveFrom != null && (
@@ -486,8 +540,15 @@ export function Hud({
               <ToolBtn label="🛣️ Road" active={buildMode === "road"} onClick={() => setBuildMode(buildMode === "road" ? null : "road")} />
               <ToolBtn label="🏠 Settle" active={buildMode === "settlement"} onClick={() => setBuildMode(buildMode === "settlement" ? null : "settlement")} />
               <ToolBtn label="🏙️ City" active={buildMode === "city"} onClick={() => setBuildMode(buildMode === "city" ? null : "city")} />
-              <button className="btn" onClick={() => send({ type: "buy_dev_card" })}>🃏 Buy</button>
-              <button className="btn" onClick={() => setPanel(panel === "dev" ? "none" : "dev")}>Play card</button>
+              {!ck && (
+                <>
+                  <button className="btn" onClick={() => send({ type: "buy_dev_card" })}>🃏 Buy</button>
+                  <button className="btn" onClick={() => setPanel(panel === "dev" ? "none" : "dev")}>Play card</button>
+                </>
+              )}
+              {ck && (
+                <ToolBtn label="🧱 Wall" active={buildMode === "wall"} onClick={() => setBuildMode(buildMode === "wall" ? null : "wall")} />
+              )}
               {ck && (
                 <button className="btn" onClick={() => setPanel(panel === "improve" ? "none" : "improve")}>
                   🏛️ Improve
@@ -768,6 +829,117 @@ function DevCardInfoModal({ kind, onClose }: { kind: DevCardKind; onClose: () =>
           <DevCardArt kind={kind} />
           <p className="devcard-desc">{info.desc}</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Read + play a progress card, with target pickers for the cards that need one.
+function ProgressCardModal({
+  kind,
+  me,
+  canPlay,
+  onPlay,
+  onClose,
+}: {
+  kind: ProgressCardKind;
+  me: PlayerState | null;
+  canPlay: boolean;
+  onPlay: (msg: ClientMessage) => void;
+  onClose: () => void;
+}) {
+  const info = PROGRESS_CARD_INFO[kind];
+  const [resource, setResource] = useState<Resource>("brick");
+  const [commodity, setCommodity] = useState<Commodity>("coin");
+  const [alc, setAlc] = useState<[Resource, Resource]>(["grain", "ore"]);
+  const held = (me?.progressCards ?? []).includes(kind);
+
+  const play = () => {
+    const msg: ClientMessage = { type: "play_progress_card", card: kind };
+    if (kind === "resource_monopoly") (msg as any).resource = resource;
+    if (kind === "trade_monopoly") (msg as any).commodity = commodity;
+    if (kind === "alchemist") (msg as any).resources = alc;
+    onPlay(msg);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal devcard-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={info.name}>
+        <div className="modal-head">
+          <h3>
+            {info.icon} {info.name}
+          </h3>
+          <button className="link-btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="devcard-body">
+          <p className="devcard-desc">
+            <span className={`prog-deck-tag prog-${info.deck}`}>{info.deck}</span>
+            {info.desc}
+          </p>
+          {kind === "resource_monopoly" && (
+            <label className="prog-param">Resource:
+              <select value={resource} onChange={(e) => setResource(e.target.value as Resource)}>
+                {RESOURCES.map((r) => <option key={r} value={r}>{RES_ICON[r]} {r}</option>)}
+              </select>
+            </label>
+          )}
+          {kind === "trade_monopoly" && (
+            <label className="prog-param">Commodity:
+              <select value={commodity} onChange={(e) => setCommodity(e.target.value as Commodity)}>
+                {COMMODITIES.map((c) => <option key={c} value={c}>{COMMODITY_ICON[c]} {c}</option>)}
+              </select>
+            </label>
+          )}
+          {kind === "alchemist" && (
+            <div className="prog-param">
+              Take:
+              <select value={alc[0]} onChange={(e) => setAlc([e.target.value as Resource, alc[1]])}>
+                {RESOURCES.map((r) => <option key={r} value={r}>{RES_ICON[r]} {r}</option>)}
+              </select>
+              <select value={alc[1]} onChange={(e) => setAlc([alc[0], e.target.value as Resource])}>
+                {RESOURCES.map((r) => <option key={r} value={r}>{RES_ICON[r]} {r}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        <button className="btn primary" disabled={!canPlay || !held} onClick={play}>
+          {canPlay ? "Play card" : "Play on your turn"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// A high-level explainer of the Cities & Knights expansion.
+function RulesModal({ onClose }: { onClose: () => void }) {
+  const rules: { icon: string; title: string; body: string }[] = [
+    { icon: "🪙", title: "Commodities", body: "Your cities produce a commodity (coin from mountains, paper from forest, cloth from pasture) on top of the base resource." },
+    { icon: "🏛️", title: "City improvements", body: "Spend commodities on the Trade, Politics and Science tracks. Reaching level 4 first builds a metropolis worth 2 victory points." },
+    { icon: "⚔️", title: "Knights", body: "Recruit, activate and promote knights. They defend Catan, chase the robber and push rival knights off the board." },
+    { icon: "🚢", title: "Barbarians", body: "The event die advances a barbarian ship. When it lands, your active knights must together match the number of cities — or the weakest players lose a city." },
+    { icon: "🛡️", title: "Defender of Catan", body: "Repel the barbarians as the strongest defender to earn a Defender of Catan token, worth 1 victory point." },
+    { icon: "📜", title: "Progress cards", body: "Roll a coloured gate and, if your matching improvement is high enough, draw a progress card with a powerful one-off effect." },
+    { icon: "🧱", title: "City walls", body: "Fortify a city (2 brick) to raise the number of cards you may hold before a 7 forces you to discard." },
+    { icon: "🏆", title: "Winning", body: "First to 13 victory points wins — from settlements, cities, metropolises, defender tokens, and more." },
+  ];
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal rules-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Cities & Knights rules">
+        <div className="modal-head">
+          <h3>🏰 Cities &amp; Knights</h3>
+          <button className="link-btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <ul className="rules-list">
+          {rules.map((r) => (
+            <li key={r.title} className="rules-row">
+              <span className="rules-ic">{r.icon}</span>
+              <span>
+                <strong>{r.title}</strong>
+                <span className="rules-body">{r.body}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );

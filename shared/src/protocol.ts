@@ -3,9 +3,11 @@ import type {
   GameState,
   PlayerColor,
   Resource,
+  Commodity,
   ResourceCounts,
   CommodityCounts,
   ImprovementTrack,
+  ProgressCardKind,
   DevCardKind,
 } from "./types.js";
 
@@ -39,6 +41,16 @@ export type ClientMessage =
   | { type: "promote_knight"; vertexId: number }
   | { type: "move_knight"; fromVertexId: number; toVertexId: number }
   | { type: "knight_chase_robber"; vertexId: number }
+  | {
+      type: "play_progress_card";
+      card: ProgressCardKind;
+      /** Optional targets used by some cards (monopolies, alchemist, engineer). */
+      resource?: Resource;
+      commodity?: Commodity;
+      resources?: [Resource, Resource];
+      vertexId?: number;
+    }
+  | { type: "build_city_wall"; vertexId: number }
   | {
       type: "offer_trade";
       to: PlayerColor | null;

@@ -6,7 +6,7 @@ import { useGameSocket } from "../lib/useGameSocket.js";
 import { Board } from "./Board.js";
 import { Hud } from "./Hud.js";
 
-export type BuildMode = "road" | "settlement" | "city" | "knight" | null;
+export type BuildMode = "road" | "settlement" | "city" | "knight" | "wall" | null;
 
 export function GameScreen({
   gameId,

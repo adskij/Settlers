@@ -173,6 +173,9 @@ export function Board({
     } else if (state.phase === "main" && buildMode === "knight") {
       send({ type: "build_knight", vertexId });
       clearBuildMode();
+    } else if (state.phase === "main" && buildMode === "wall") {
+      send({ type: "build_city_wall", vertexId });
+      clearBuildMode();
     }
   };
 
@@ -392,8 +395,24 @@ export function Board({
             );
           }
           if (b) {
+            const wallTarget =
+              buildMode === "wall" && b.owner === you && b.kind === "city" && !b.wall;
             return (
-              <g key={v.id} filter="url(#piece-shadow)" onClick={() => onVertex(v.id)}>
+              <g key={v.id} filter="url(#piece-shadow)" className={wallTarget ? "vertex-clickable" : ""} onClick={() => onVertex(v.id)}>
+                {b.wall && (
+                  // City wall: a stone rampart hugging the city.
+                  <rect
+                    x={v.pos.x - 2.4}
+                    y={v.pos.y - 2.4}
+                    width={4.8}
+                    height={4.8}
+                    rx={0.8}
+                    fill="none"
+                    stroke="#c9bfa6"
+                    strokeWidth={0.5}
+                    strokeDasharray="0.9 0.5"
+                  />
+                )}
                 {b.kind === "city" ? (
                   <rect
                     x={v.pos.x - 1.7}

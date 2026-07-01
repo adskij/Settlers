@@ -14,7 +14,10 @@ import {
   KNIGHT_ACTIVATE_COST,
   KNIGHT_LIMIT,
   BARBARIAN_TRACK_LENGTH,
+  CITY_WALL_COST,
+  MAX_CITY_WALLS,
   type GameState,
+  type ProgressCardKind,
   type ImprovementTrack,
   type KnightPiece,
   type PlayerColor,
@@ -608,6 +611,36 @@ function botBarbarianDefense(game: InternalGame, color: PlayerColor, me: PlayerS
   return false;
 }
 
+// Cards that only pay off paired with a follow-up action; bots skip them.
+const BOT_SKIP_PROGRESS = new Set<ProgressCardKind>(["crane", "merchant_fleet"]);
+
+// Play a held progress card when it's straightforwardly useful now.
+function botPlayProgress(game: InternalGame, color: PlayerColor, me: PlayerState): boolean {
+  const s = game.state;
+  if (s.variant !== "cities_and_knights") return false;
+  const hand = me.progressCards ?? [];
+  for (const card of hand) {
+    if (BOT_SKIP_PROGRESS.has(card)) continue;
+    if (card === "engineer" && !s.buildings.some((b) => b.owner === color && b.kind === "city" && !b.wall))
+      continue;
+    if ((card === "warlord" || card === "smith") && !(s.knights ?? []).some((k) => k.owner === color))
+      continue;
+    if (act(game, color, { type: "play_progress_card", card })) return true;
+  }
+  return false;
+}
+
+// Fortify a city when flush (raises the discard limit, protects against pillage).
+function botBuildWall(game: InternalGame, color: PlayerColor, me: PlayerState): boolean {
+  const s = game.state;
+  if (s.variant !== "cities_and_knights") return false;
+  if ((me.cityWalls ?? 0) >= MAX_CITY_WALLS) return false;
+  if (!canAfford(me, CITY_WALL_COST)) return false;
+  const city = s.buildings.find((b) => b.owner === color && b.kind === "city" && !b.wall);
+  if (!city) return false;
+  return act(game, color, { type: "build_city_wall", vertexId: city.vertexId });
+}
+
 // Deploy/activate a knight when flush, up to a small cap. Returns true if acted.
 function botKnightUpkeep(game: InternalGame, color: PlayerColor, me: PlayerState): boolean {
   const s = game.state;
@@ -640,6 +673,9 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
 
   // 0a. C&K: rally knights when the barbarian ship is about to land.
   if (botBarbarianDefense(game, color, me)) return true;
+
+  // 0a2. C&K: play a useful progress card (free VP, gains, activation).
+  if (botPlayProgress(game, color, me)) return true;
 
   // 0b. C&K: spend commodities on city improvements (metropolis = +2 VP).
   const track = chooseImprovement(me);
@@ -674,6 +710,8 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
   }
   // 4b. C&K: keep a knight or two deployed and active (cheap standing defense).
   if (botKnightUpkeep(game, color, me)) return true;
+  // 4c. C&K: fortify a city if resources are spare.
+  if (botBuildWall(game, color, me)) return true;
   // 5. Otherwise bank a development card if flush.
   if (s.devDeckCount > 0 && canAfford(me, BUILD_COSTS.dev_card)) {
     if (act(game, color, { type: "buy_dev_card" })) return true;

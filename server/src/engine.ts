@@ -22,9 +22,17 @@ import {
   KNIGHT_ACTIVATE_COST,
   KNIGHT_RANK_NAME,
   BARBARIAN_TRACK_LENGTH,
+  PROGRESS_DECK,
+  PROGRESS_CARD_COPIES,
+  PROGRESS_HAND_LIMIT,
+  PROGRESS_CARD_INFO,
+  CITY_WALL_COST,
+  CITY_WALL_HAND_BONUS,
+  MAX_CITY_WALLS,
   buildDevDeck,
   generateBoard,
   mulberry32,
+  shuffle,
   type Board,
   type Commodity,
   type CommodityCounts,
@@ -38,6 +46,7 @@ import {
   type KnightRank,
   type PlayerColor,
   type PlayerState,
+  type ProgressCardKind,
   type Resource,
   type ResourceCounts,
   type ClientMessage,
@@ -46,6 +55,8 @@ import {
 export interface InternalGame {
   state: GameState;
   devDeck: DevCardKind[];
+  /** C&K: the three hidden progress-card decks (contents server-side only). */
+  progressDecks?: Record<ImprovementTrack, ProgressCardKind[]>;
   seed: number;
   /** Total setup placements made (used to drive snake order + termination). */
   setupPlaced: number;
@@ -82,6 +93,16 @@ function emptyImprovements(): ImprovementLevels {
   return { trade: 0, politics: 0, science: 0 };
 }
 
+function buildProgressDecks(rng: () => number): Record<ImprovementTrack, ProgressCardKind[]> {
+  const make = (track: ImprovementTrack) => {
+    const cards: ProgressCardKind[] = [];
+    for (const k of PROGRESS_DECK[track])
+      for (let i = 0; i < PROGRESS_CARD_COPIES; i++) cards.push(k);
+    return shuffle(cards, rng);
+  };
+  return { trade: make("trade"), politics: make("politics"), science: make("science") };
+}
+
 export function createGame(
   id: string,
   seed: number,
@@ -90,8 +111,10 @@ export function createGame(
 ): InternalGame {
   const board: Board = generateBoard(seed);
   const rng = mulberry32(seed ^ 0x9e3779b9);
-  const devDeck = buildDevDeck(rng);
   const ck = variant === "cities_and_knights";
+  // C&K replaces the development deck entirely with the three progress decks.
+  const devDeck = ck ? [] : buildDevDeck(rng);
+  const progressDecks = ck ? buildProgressDecks(rng) : undefined;
 
   const players: PlayerState[] = seats.map((s) => ({
     userId: s.userId,
@@ -106,7 +129,13 @@ export function createGame(
     victoryPointCards: 0,
     hasPlayedDevCardThisTurn: false,
     ...(ck
-      ? { commodities: emptyCommodities(), improvements: emptyImprovements(), defenderTokens: 0 }
+      ? {
+          commodities: emptyCommodities(),
+          improvements: emptyImprovements(),
+          defenderTokens: 0,
+          progressCards: [],
+          cityWalls: 0,
+        }
       : {}),
   }));
 
@@ -137,12 +166,18 @@ export function createGame(
           knights: [],
           eventDie: null,
           barbarianStep: 0,
+          merchantOwner: null,
+          progressDeckCounts: {
+            trade: progressDecks!.trade.length,
+            politics: progressDecks!.politics.length,
+            science: progressDecks!.science.length,
+          },
         }
       : {}),
     updatedAt: Date.now(),
   };
 
-  return { state, devDeck, seed, setupPlaced: 0, botTrade: null };
+  return { state, devDeck, progressDecks, seed, setupPlaced: 0, botTrade: null };
 }
 
 // ---- Helpers ----
@@ -250,7 +285,14 @@ export function victoryPoints(state: GameState, color: PlayerColor): number {
   }
   // C&K: Defender of Catan tokens are worth 1 VP each.
   if (p?.defenderTokens) vp += p.defenderTokens;
+  // C&K: the Merchant is worth 1 VP to whoever holds it.
+  if (state.merchantOwner === color) vp += 1;
   return vp;
+}
+
+// A player's discard threshold: 7, raised by city walls in C&K.
+function discardLimit(p: PlayerState): number {
+  return MAX_HAND_BEFORE_DISCARD + CITY_WALL_HAND_BONUS * (p.cityWalls ?? 0);
 }
 
 // The victory-point target for this game (13 in C&K, 10 in the base game).
@@ -434,6 +476,10 @@ export function applyAction(
         return moveKnight(game, color, msg.fromVertexId, msg.toVertexId, isCurrent);
       case "knight_chase_robber":
         return knightChaseRobber(game, color, msg.vertexId, isCurrent);
+      case "play_progress_card":
+        return playProgressCard(game, color, msg, isCurrent);
+      case "build_city_wall":
+        return buildCityWall(game, color, msg.vertexId, isCurrent);
       case "bank_trade":
         return bankTrade(game, color, msg.give, msg.receive, isCurrent);
       case "offer_trade":
@@ -563,7 +609,7 @@ function rollDice(game: InternalGame, color: PlayerColor, isCurrent: boolean): A
 
   // C&K: the event die (barbarians / improvement gates) resolves first.
   if (isCK(state)) {
-    resolveEventDie(state);
+    resolveEventDie(game);
     checkWin(state); // a Defender token may push the roller to the win target
     if (state.winner) return ok();
   }
@@ -573,7 +619,7 @@ function rollDice(game: InternalGame, color: PlayerColor, isCurrent: boolean): A
     state.pendingDiscards = {};
     for (const p of state.players) {
       const total = handSize(p);
-      if (total > MAX_HAND_BEFORE_DISCARD) {
+      if (total > discardLimit(p)) {
         state.pendingDiscards[p.color] = Math.floor(total / 2);
       }
     }
@@ -711,11 +757,13 @@ function buyImprovement(
   if (level >= MAX_IMPROVEMENT_LEVEL) return fail("That track is already maxed out.");
 
   const commodity: Commodity = TRACK_COMMODITY[track];
-  const cost = improvementCost(level + 1);
+  // The Crane progress card shaves 1 commodity off the next improvement.
+  const cost = Math.max(0, improvementCost(level + 1) - (actor.craneTurn ? 1 : 0));
   if (actor.commodities[commodity] < cost)
     return fail(`Need ${cost} ${commodity} to reach level ${level + 1}.`);
 
   actor.commodities[commodity] -= cost;
+  if (actor.craneTurn) actor.craneTurn = false;
   actor.improvements[track] = level + 1;
   log(state, `${actor.name} advanced ${track} to level ${level + 1}.`);
   if (level + 1 >= METROPOLIS_LEVEL) updateMetropolis(state, track);
@@ -974,7 +1022,13 @@ function pillageCity(state: GameState, color: PlayerColor) {
     return;
   }
   cities.sort((a, b) => pipValue(state, a.vertexId) - pipValue(state, b.vertexId));
-  cities[0].kind = "settlement";
+  const lost = cities[0];
+  lost.kind = "settlement";
+  if (lost.wall) {
+    lost.wall = false;
+    const owner = playerByColor(state, color);
+    if (owner && owner.cityWalls) owner.cityWalls -= 1;
+  }
   log(state, `Barbarians sacked one of ${nameOf(state, color)}'s cities.`);
 }
 
@@ -1015,14 +1069,334 @@ function resolveBarbarianAttack(state: GameState) {
   state.barbarianStep = 0;
 }
 
-// Roll the event die and advance / trigger the barbarians (gates are Phase 4).
-function resolveEventDie(state: GameState) {
+// Roll the event die: advance/trigger barbarians, or draw progress cards on a
+// gate. On a gate, every player whose matching improvement level is at least
+// the red die's value draws a card from that deck (up to the hand limit).
+function resolveEventDie(game: InternalGame) {
+  const { state } = game;
   const face = rollEventDie();
   state.eventDie = face;
   if (face === "barbarian") {
     state.barbarianStep = Math.min(BARBARIAN_TRACK_LENGTH, (state.barbarianStep ?? 0) + 1);
     log(state, `The barbarian ship advances (${state.barbarianStep}/${BARBARIAN_TRACK_LENGTH}).`);
     if (state.barbarianStep >= BARBARIAN_TRACK_LENGTH) resolveBarbarianAttack(state);
+    return;
+  }
+  // Gate face → progress-card draws. The red die (dice[0]) sets the threshold.
+  const track = face as ImprovementTrack;
+  const redDie = state.dice ? state.dice[0] : 1;
+  for (const p of state.players) {
+    if ((p.improvements?.[track] ?? 0) >= redDie) drawProgress(game, p, track);
+  }
+}
+
+// Draw one card from a progress deck into a player's hand (respects the limit).
+function drawProgress(game: InternalGame, p: PlayerState, track: ImprovementTrack) {
+  const deck = game.progressDecks?.[track];
+  if (!deck || deck.length === 0) return;
+  if ((p.progressCards?.length ?? 0) >= PROGRESS_HAND_LIMIT) {
+    log(game.state, `${p.name} couldn't hold another progress card.`);
+    return;
+  }
+  const card = deck.pop()!;
+  (p.progressCards ??= []).push(card);
+  if (game.state.progressDeckCounts) game.state.progressDeckCounts[track] = deck.length;
+  log(game.state, `${p.name} drew a ${track} progress card.`);
+}
+
+// ---- Cities & Knights: city walls & progress cards ----
+
+function buildCityWall(
+  game: InternalGame,
+  color: PlayerColor,
+  vertexId: number,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  const guard = requireCK(state);
+  if (guard) return guard;
+  if (state.phase !== "main") return fail("Build walls during your build phase.");
+  if (!isCurrent) return fail("Not your turn.");
+  const actor = playerByColor(state, color)!;
+  const b = state.buildings.find((bb) => bb.vertexId === vertexId);
+  if (!b || b.owner !== color || b.kind !== "city") return fail("City walls go on your own city.");
+  if (b.wall) return fail("That city already has a wall.");
+  if ((actor.cityWalls ?? 0) >= MAX_CITY_WALLS) return fail("You can't build more walls.");
+  if (!canAfford(actor, CITY_WALL_COST)) return fail("Need 2 brick.");
+  pay(actor, CITY_WALL_COST);
+  b.wall = true;
+  actor.cityWalls = (actor.cityWalls ?? 0) + 1;
+  log(state, `${actor.name} fortified a city with a wall.`);
+  return ok();
+}
+
+// A player's held cards as a flat pool, for random steal/discard effects.
+type CardRef = ["res", Resource] | ["com", Commodity];
+function cardPool(p: PlayerState): CardRef[] {
+  const pool: CardRef[] = [];
+  for (const r of RESOURCES) for (let i = 0; i < p.resources[r]; i++) pool.push(["res", r]);
+  if (p.commodities)
+    for (const c of COMMODITIES) for (let i = 0; i < p.commodities[c]; i++) pool.push(["com", c]);
+  return pool;
+}
+function moveCard(from: PlayerState, to: PlayerState, e: CardRef) {
+  if (e[0] === "res") {
+    from.resources[e[1]] -= 1;
+    to.resources[e[1]] += 1;
+  } else if (from.commodities && to.commodities) {
+    from.commodities[e[1]] -= 1;
+    to.commodities[e[1]] += 1;
+  }
+}
+function stealN(from: PlayerState, to: PlayerState, n: number) {
+  for (let i = 0; i < n; i++) {
+    const pool = cardPool(from);
+    if (!pool.length) break;
+    moveCard(from, to, pool[Math.floor(Math.random() * pool.length)]);
+  }
+}
+function discardN(p: PlayerState, n: number) {
+  for (let i = 0; i < n; i++) {
+    const pool = cardPool(p);
+    if (!pool.length) break;
+    const e = pool[Math.floor(Math.random() * pool.length)];
+    if (e[0] === "res") p.resources[e[1]] -= 1;
+    else if (p.commodities) p.commodities[e[1]] -= 1;
+  }
+}
+function opponents(state: GameState, color: PlayerColor): PlayerState[] {
+  return state.players.filter((p) => p.color !== color);
+}
+function topVPOpponent(state: GameState, color: PlayerColor): PlayerState | null {
+  const opps = opponents(state, color);
+  if (!opps.length) return null;
+  return opps.reduce((a, b) => (victoryPoints(state, b.color) > victoryPoints(state, a.color) ? b : a));
+}
+// Hexes of a given terrain that border any of the player's buildings.
+function borderingHexes(state: GameState, color: PlayerColor, terrain: string): number[] {
+  const set = new Set<number>();
+  for (const b of state.buildings) {
+    if (b.owner !== color) continue;
+    for (const h of state.board.vertices[b.vertexId].hexIds) {
+      if (state.board.hexes[h].terrain === terrain) set.add(h);
+    }
+  }
+  return [...set];
+}
+
+function removeProgress(p: PlayerState, card: ProgressCardKind): boolean {
+  const idx = p.progressCards?.indexOf(card) ?? -1;
+  if (idx < 0) return false;
+  p.progressCards!.splice(idx, 1);
+  return true;
+}
+
+function playProgressCard(
+  game: InternalGame,
+  color: PlayerColor,
+  msg: Extract<ClientMessage, { type: "play_progress_card" }>,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  const guard = requireCK(state);
+  if (guard) return guard;
+  if (!isCurrent) return fail("Play progress cards on your turn.");
+  if (state.phase !== "main") return fail("Play progress cards during your build phase.");
+  const actor = playerByColor(state, color)!;
+  if (!(actor.progressCards ?? []).includes(msg.card)) return fail("You don't have that card.");
+
+  const result = applyProgressEffect(game, actor, msg);
+  if (!result.ok) return result; // precondition failed — card is not consumed
+  removeProgress(actor, msg.card);
+  log(state, `${actor.name} played ${PROGRESS_CARD_INFO[msg.card].name}.`);
+  checkWin(state);
+  return ok();
+}
+
+// Effects resolve immediately and server-side. Where the physical game asks the
+// player to choose a target, we take an optional message param and otherwise
+// pick a sensible target automatically (kept simple but always legal).
+function applyProgressEffect(
+  game: InternalGame,
+  actor: PlayerState,
+  msg: Extract<ClientMessage, { type: "play_progress_card" }>
+): ActionResult {
+  const { state } = game;
+  const color = actor.color;
+  switch (msg.card) {
+    case "master_merchant": {
+      const target = topVPOpponent(state, color);
+      if (target) stealN(target, actor, 2);
+      return ok();
+    }
+    case "merchant": {
+      state.merchantOwner = color;
+      return ok();
+    }
+    case "merchant_fleet": {
+      actor.tradeFleetTurn = true;
+      return ok();
+    }
+    case "resource_monopoly": {
+      const res =
+        msg.resource ??
+        RESOURCES.reduce((best, r) =>
+          opponents(state, color).reduce((s, p) => s + p.resources[r], 0) >
+          opponents(state, color).reduce((s, p) => s + p.resources[best], 0)
+            ? r
+            : best
+        );
+      for (const p of opponents(state, color)) {
+        const take = Math.min(2, p.resources[res]);
+        p.resources[res] -= take;
+        actor.resources[res] += take;
+      }
+      return ok();
+    }
+    case "trade_monopoly": {
+      const com =
+        msg.commodity ??
+        COMMODITIES.reduce((best, c) =>
+          opponents(state, color).reduce((s, p) => s + (p.commodities?.[c] ?? 0), 0) >
+          opponents(state, color).reduce((s, p) => s + (p.commodities?.[best] ?? 0), 0)
+            ? c
+            : best
+        );
+      for (const p of opponents(state, color)) {
+        if (!p.commodities || !actor.commodities) continue;
+        const take = Math.min(1, p.commodities[com]);
+        p.commodities[com] -= take;
+        actor.commodities[com] += take;
+      }
+      return ok();
+    }
+    case "commercial_harbor": {
+      for (const p of opponents(state, color)) {
+        if (!p.commodities || !actor.commodities) continue;
+        const com = COMMODITIES.filter((c) => p.commodities![c] > 0).sort(
+          (a, b) => p.commodities![b] - p.commodities![a]
+        )[0];
+        const res = RESOURCES.filter((r) => actor.resources[r] > 0).sort(
+          (a, b) => actor.resources[b] - actor.resources[a]
+        )[0];
+        if (com && res) {
+          p.commodities[com] -= 1;
+          actor.commodities[com] += 1;
+          actor.resources[res] -= 1;
+          p.resources[res] += 1;
+        }
+      }
+      return ok();
+    }
+    case "warlord": {
+      for (const k of state.knights ?? []) if (k.owner === color) k.active = true;
+      return ok();
+    }
+    case "smith": {
+      const mine = (state.knights ?? []).filter((k) => k.owner === color && k.rank < 3);
+      let promoted = 0;
+      for (const k of mine) {
+        if (promoted >= 2) break;
+        if (k.rank + 1 >= 3 && (actor.improvements?.politics ?? 0) < MIGHTY_KNIGHT_POLITICS_LEVEL)
+          continue;
+        k.rank = (k.rank + 1) as KnightRank;
+        promoted++;
+      }
+      return ok();
+    }
+    case "bishop": {
+      // Auto-move the robber to the hex touching the most opponents, then rob
+      // one card from every player adjacent to it.
+      let bestHex = -1;
+      let bestCount = -1;
+      for (const hex of state.board.hexes) {
+        if (hex.id === state.board.robberHexId || hex.terrain === "desert") continue;
+        const owners = new Set<PlayerColor>();
+        for (const b of state.buildings)
+          if (b.owner !== color && state.board.vertices[b.vertexId].hexIds.includes(hex.id))
+            owners.add(b.owner);
+        if (owners.size > bestCount) {
+          bestCount = owners.size;
+          bestHex = hex.id;
+        }
+      }
+      if (bestHex >= 0) {
+        state.board.robberHexId = bestHex;
+        const victims = new Set<PlayerColor>();
+        for (const b of state.buildings)
+          if (b.owner !== color && state.board.vertices[b.vertexId].hexIds.includes(bestHex))
+            victims.add(b.owner);
+        for (const vc of victims) stealN(playerByColor(state, vc)!, actor, 1);
+      }
+      return ok();
+    }
+    case "saboteur": {
+      const myVP = victoryPoints(state, color);
+      for (const p of opponents(state, color)) {
+        if (victoryPoints(state, p.color) >= myVP) {
+          const total = totalResources(p) + totalCommodities(p);
+          discardN(p, Math.floor(total / 2));
+        }
+      }
+      return ok();
+    }
+    case "spy": {
+      const target = opponents(state, color)
+        .filter((p) => (p.progressCards?.length ?? 0) > 0)
+        .sort((a, b) => (b.progressCards!.length ?? 0) - (a.progressCards!.length ?? 0))[0];
+      if (target && target.progressCards && target.progressCards.length) {
+        const i = Math.floor(Math.random() * target.progressCards.length);
+        const [taken] = target.progressCards.splice(i, 1);
+        (actor.progressCards ??= []).push(taken);
+      }
+      return ok();
+    }
+    case "wedding": {
+      const myVP = victoryPoints(state, color);
+      for (const p of opponents(state, color)) {
+        if (victoryPoints(state, p.color) > myVP) stealN(p, actor, 2);
+      }
+      return ok();
+    }
+    case "alchemist": {
+      const pair = msg.resources ?? (["grain", "ore"] as [Resource, Resource]);
+      for (const r of pair) actor.resources[r] += 1;
+      return ok();
+    }
+    case "crane": {
+      actor.craneTurn = true;
+      return ok();
+    }
+    case "engineer": {
+      if ((actor.cityWalls ?? 0) >= MAX_CITY_WALLS) return fail("You can't build more walls.");
+      const city =
+        (msg.vertexId != null
+          ? state.buildings.find(
+              (b) => b.vertexId === msg.vertexId && b.owner === color && b.kind === "city" && !b.wall
+            )
+          : undefined) ??
+        state.buildings.find((b) => b.owner === color && b.kind === "city" && !b.wall);
+      if (!city) return fail("You have no un-walled city to fortify.");
+      city.wall = true;
+      actor.cityWalls = (actor.cityWalls ?? 0) + 1;
+      return ok();
+    }
+    case "irrigation": {
+      const fields = borderingHexes(state, color, "grain").length;
+      actor.resources.grain += 2 * fields;
+      return ok();
+    }
+    case "mining": {
+      const mountains = borderingHexes(state, color, "ore").length;
+      actor.resources.ore += 2 * mountains;
+      return ok();
+    }
+    case "printer": {
+      actor.victoryPointCards += 1; // kept, hidden VP
+      return ok();
+    }
+    default:
+      return ok();
   }
 }
 
@@ -1032,6 +1406,7 @@ function buyDevCard(game: InternalGame, color: PlayerColor, isCurrent: boolean):
   const { state, devDeck } = game;
   if (state.phase !== "main") return fail("You can't buy a card right now.");
   if (!isCurrent) return fail("Not your turn.");
+  if (isCK(state)) return fail("Cities & Knights uses progress cards, not development cards.");
   if (devDeck.length === 0) return fail("The deck is empty.");
   const actor = playerByColor(state, color)!;
   if (!canAfford(actor, BUILD_COSTS.dev_card)) return fail("Not enough resources.");
@@ -1239,7 +1614,8 @@ function bankTrade(
   for (const [r, n] of Object.entries(give)) {
     const amount = n ?? 0;
     if (amount === 0) continue;
-    const rate = rateFor(ports, r as Resource);
+    // Merchant Fleet: every bank trade this turn is at least 2:1.
+    const rate = actor.tradeFleetTurn ? Math.min(2, rateFor(ports, r as Resource)) : rateFor(ports, r as Resource);
     if (amount % rate !== 0) return fail(`Trade ${r} in multiples of ${rate}.`);
     giveCount += amount / rate;
   }
@@ -1347,6 +1723,8 @@ function endTurn(game: InternalGame, color: PlayerColor, isCurrent: boolean): Ac
   actor.devCards.push(...actor.newDevCards);
   actor.newDevCards = [];
   actor.hasPlayedDevCardThisTurn = false;
+  actor.tradeFleetTurn = false; // C&K per-turn progress-card modifiers expire
+  actor.craneTurn = false;
   state.pendingTrades = [];
   state.dice = null;
 
@@ -1368,6 +1746,8 @@ export function redactFor(state: GameState, viewer: PlayerColor | null): GameSta
       p.newDevCards = [];
       // Hidden victory-point cards stay secret until the game ends.
       if (clone.phase !== "finished") p.victoryPointCards = 0;
+      // C&K: progress-card contents are hidden; expose only the count.
+      if (p.progressCards) p.progressCards = Array(p.progressCards.length).fill("printer");
     }
   }
   return clone;
