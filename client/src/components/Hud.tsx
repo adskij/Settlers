@@ -221,6 +221,7 @@ export function Hud({
   const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev" | "improve" | "knights">("none");
   const [showCosts, setShowCosts] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [showVp, setShowVp] = useState(false);
   const [infoCard, setInfoCard] = useState<DevCardKind | null>(null);
   const [progCard, setProgCard] = useState<ProgressCardKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -261,6 +262,7 @@ export function Hud({
       {error && <div className="toast error" onClick={clearError}>{error}</div>}
       {showCosts && <CostsModal winTarget={winTargetOf(state)} onClose={() => setShowCosts(false)} />}
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+      {showVp && me && <VpBreakdownModal state={state} me={me} onClose={() => setShowVp(false)} />}
       {infoCard && <DevCardInfoModal kind={infoCard} onClose={() => setInfoCard(null)} />}
       {progCard && (
         <ProgressCardModal
@@ -412,12 +414,18 @@ export function Hud({
       {me && (
         <div className="me-panel">
           <div className="me-top">
-            <div className="vp-badge" title="Your victory points (incl. hidden cards)">
+            <button
+              type="button"
+              className="vp-badge as-btn"
+              title="Tap for a breakdown of your victory points"
+              onClick={() => setShowVp(true)}
+            >
               <span className="vp-star">★</span>
               <span className="vp-count">{publicVP(state, me.color)}</span>
               <span className="vp-of">/ {winTargetOf(state)}</span>
               <span className="vp-text">Victory Points</span>
-            </div>
+              <span className="vp-info" aria-hidden>ⓘ</span>
+            </button>
             <button
               className="btn sm costs-btn"
               onClick={() => setShowCosts(true)}
@@ -1089,6 +1097,79 @@ function RulesModal({ onClose }: { onClose: () => void }) {
             );
           })}
         </ul>
+      </div>
+    </div>
+  );
+}
+
+// A breakdown of exactly where the viewer's victory points come from.
+function VpBreakdownModal({
+  state,
+  me,
+  onClose,
+}: {
+  state: GameState;
+  me: PlayerState;
+  onClose: () => void;
+}) {
+  const color = me.color;
+  const settlements = state.buildings.filter((b) => b.owner === color && b.kind === "settlement").length;
+  const cities = state.buildings.filter((b) => b.owner === color && b.kind === "city").length;
+  const metros = state.metropolisOwner
+    ? IMPROVEMENT_TRACKS.filter((t) => state.metropolisOwner![t] === color).length
+    : 0;
+  const rows: { icon: string; label: string; detail?: string; points: number }[] = [
+    { icon: "🏠", label: "Settlements", detail: `${settlements} × 1`, points: settlements },
+    { icon: "🏙️", label: "Cities", detail: `${cities} × 2`, points: cities * 2 },
+  ];
+  if (isCK(state)) rows.push({ icon: "🏛️", label: "Metropolises", detail: `${metros} × 2`, points: metros * 2 });
+  if (state.longestRoadOwner === color) rows.push({ icon: "🛣️", label: "Longest Road", points: 2 });
+  if (state.largestArmyOwner === color) rows.push({ icon: "🎖️", label: "Largest Army", points: 2 });
+  if (isCK(state) && state.merchantOwner === color) rows.push({ icon: "🏪", label: "Merchant", points: 1 });
+  if (isCK(state) && (me.defenderTokens ?? 0) > 0)
+    rows.push({ icon: "🛡️", label: "Defender of Catan", detail: `${me.defenderTokens} × 1`, points: me.defenderTokens ?? 0 });
+  if (me.victoryPointCards > 0)
+    rows.push({
+      icon: "⭐",
+      label: isCK(state) ? "Printer cards" : "Victory point cards",
+      detail: `${me.victoryPointCards} × 1 (hidden)`,
+      points: me.victoryPointCards,
+    });
+  const shown = rows.filter((r) => r.points > 0);
+  const total = shown.reduce((s, r) => s + r.points, 0);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal vp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Victory point breakdown">
+        <div className="modal-head">
+          <h3>★ Your victory points</h3>
+          <button className="link-btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        {shown.length === 0 ? (
+          <p className="muted">No victory points yet — build a settlement to get started.</p>
+        ) : (
+          <ul className="vp-list">
+            {shown.map((r) => (
+              <li key={r.label} className="vp-row">
+                <span className="vp-row-name">
+                  <span className="vp-row-ic">{r.icon}</span>
+                  <span>
+                    {r.label}
+                    {r.detail && <span className="vp-row-detail">{r.detail}</span>}
+                  </span>
+                </span>
+                <span className="vp-row-pts">{r.points}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="vp-total">
+          <span>Total</span>
+          <span>{total} / {winTargetOf(state)}</span>
+        </div>
+        {me.victoryPointCards > 0 && (
+          <p className="vp-foot muted">Hidden cards are shown only to you until the game ends.</p>
+        )}
       </div>
     </div>
   );
