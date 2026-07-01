@@ -9,6 +9,7 @@ import {
 import {
   addBot,
   createLobby,
+  deleteGame,
   getLobby,
   joinLobby,
   leaveLobby,
@@ -122,6 +123,15 @@ router.post(
   requireAuth,
   wrap((req, res) => {
     leaveLobby(req.params.id, req.userId!);
+    res.json({ ok: true });
+  })
+);
+
+router.post(
+  "/games/:id/delete",
+  requireAuth,
+  wrap((req, res) => {
+    deleteGame(req.params.id, req.userId!);
     res.json({ ok: true });
   })
 );

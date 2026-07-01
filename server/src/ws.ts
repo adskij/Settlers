@@ -6,6 +6,7 @@ import {
   handleAction,
   loadGame,
   setBroadcaster,
+  setOnDeleted,
   setConnected,
   startGame,
   colorForUser,
@@ -26,6 +27,17 @@ export function attachWebSocket(server: Server) {
 
   // Let the game manager push bot moves to all clients in a room.
   setBroadcaster(broadcastState);
+
+  // When a game is deleted, tell everyone in its room and clear it.
+  setOnDeleted((gameId) => {
+    const room = rooms.get(gameId);
+    if (!room) return;
+    for (const client of room) {
+      send(client.ws, { type: "closed", reason: "The host deleted this game." });
+      client.gameId = null;
+    }
+    rooms.delete(gameId);
+  });
 
   wss.on("connection", (ws, req) => {
     // Authenticate via ?token= query param.

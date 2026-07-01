@@ -37,13 +37,24 @@ export function GameScreen({
     if (freeRoads > 0 && youAreCurrent) setBuildMode("road");
   }, [freeRoads, youAreCurrent]);
 
+  // The host deleted this game while we were in it — return to the lobby.
+  useEffect(() => {
+    if (sock.closedReason) {
+      alert(sock.closedReason);
+      onExit();
+    }
+  }, [sock.closedReason, onExit]);
+
   // While the game hasn't started, poll lobby info over REST.
   const refreshLobby = useCallback(() => {
     api
       .getGame(gameId)
       .then((r) => setLobby(r.game))
-      .catch(() => {});
-  }, [gameId]);
+      .catch((e) => {
+        // Game no longer exists (deleted) — leave the empty waiting room.
+        if (/not found/i.test((e as Error).message)) onExit();
+      });
+  }, [gameId, onExit]);
 
   useEffect(() => {
     if (sock.state) return; // game running; WS drives everything
