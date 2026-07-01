@@ -252,6 +252,15 @@ input, select {
   background: var(--card); border-radius: 14px; width: 100%; max-width: 360px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 16px;
   border: 1px solid rgba(255,255,255,0.1);
+  /* Scroll within the modal when its content is taller than the screen. */
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+/* Keep the close button reachable while the body scrolls under it. */
+.modal .modal-head {
+  position: sticky; top: -16px; background: var(--card); z-index: 1;
+  padding-top: 6px; margin-top: -6px;
 }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .modal-head h3 { margin: 0; font-size: 18px; }
@@ -474,6 +483,18 @@ input, select {
 .sk-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
 .fleet-note { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #9fd0ef; }
+
+/* Clickable VP badge + breakdown modal */
+.vp-badge.as-btn { border: none; cursor: pointer; font: inherit; position: relative; }
+.vp-badge .vp-info { font-size: 11px; opacity: 0.7; margin-left: 2px; }
+.vp-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.vp-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--bg-2); }
+.vp-row-name { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.vp-row-ic { font-size: 18px; }
+.vp-row-detail { display: block; font-size: 11px; color: var(--muted); }
+.vp-row-pts { font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
+.vp-total { display: flex; align-items: center; justify-content: space-between; font-weight: 800; font-size: 16px; padding: 6px 4px; }
+.vp-foot { font-size: 11px; margin: 8px 0 0; }
 
 .barbarian-tracker {
   background: var(--card); border: 1px solid var(--bg-2); border-radius: 10px;
