@@ -1034,7 +1034,14 @@ function pillageCity(state: GameState, color: PlayerColor) {
     log(state, `${nameOf(state, color)}'s cities held (metropolis walls stood firm).`);
     return;
   }
-  cities.sort((a, b) => pipValue(state, a.vertexId) - pipValue(state, b.vertexId));
+  // Sacrifice an un-walled city first (keep the wall investment), and among
+  // equals give up the least-valuable one — the choice a player would make.
+  cities.sort((a, b) => {
+    const aw = a.wall ? 1 : 0;
+    const bw = b.wall ? 1 : 0;
+    if (aw !== bw) return aw - bw;
+    return pipValue(state, a.vertexId) - pipValue(state, b.vertexId);
+  });
   const lost = cities[0];
   lost.kind = "settlement";
   if (lost.wall) {
