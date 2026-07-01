@@ -21,6 +21,7 @@ import {
   KNIGHT_PROMOTE_COST,
   KNIGHT_ACTIVATE_COST,
   KNIGHT_RANK_NAME,
+  BARBARIAN_TRACK_LENGTH,
   buildDevDeck,
   generateBoard,
   mulberry32,
@@ -28,6 +29,7 @@ import {
   type Commodity,
   type CommodityCounts,
   type DevCardKind,
+  type EventDie,
   type GameState,
   type GameVariant,
   type ImprovementLevels,
@@ -103,7 +105,9 @@ export function createGame(
     playedKnights: 0,
     victoryPointCards: 0,
     hasPlayedDevCardThisTurn: false,
-    ...(ck ? { commodities: emptyCommodities(), improvements: emptyImprovements() } : {}),
+    ...(ck
+      ? { commodities: emptyCommodities(), improvements: emptyImprovements(), defenderTokens: 0 }
+      : {}),
   }));
 
   const state: GameState = {
@@ -128,7 +132,12 @@ export function createGame(
     log: ["Game started. Place your first settlement."],
     freeRoadsRemaining: 0,
     ...(ck
-      ? { metropolisOwner: { trade: null, politics: null, science: null }, knights: [] }
+      ? {
+          metropolisOwner: { trade: null, politics: null, science: null },
+          knights: [],
+          eventDie: null,
+          barbarianStep: 0,
+        }
       : {}),
     updatedAt: Date.now(),
   };
@@ -239,6 +248,8 @@ export function victoryPoints(state: GameState, color: PlayerColor): number {
       if (state.metropolisOwner[track] === color) vp += 2;
     }
   }
+  // C&K: Defender of Catan tokens are worth 1 VP each.
+  if (p?.defenderTokens) vp += p.defenderTokens;
   return vp;
 }
 
@@ -549,6 +560,13 @@ function rollDice(game: InternalGame, color: PlayerColor, isCurrent: boolean): A
   state.dice = [d1, d2];
   const sum = d1 + d2;
   log(state, `${nameOf(state, color)} rolled ${sum} (${d1}+${d2}).`);
+
+  // C&K: the event die (barbarians / improvement gates) resolves first.
+  if (isCK(state)) {
+    resolveEventDie(state);
+    checkWin(state); // a Defender token may push the roller to the win target
+    if (state.winner) return ok();
+  }
 
   if (sum === 7) {
     // Robber: everyone with >7 cards discards half (rounded down).
@@ -922,6 +940,90 @@ function knightChaseRobber(
   state.phase = "moving_robber";
   log(state, `${nameOf(state, color)}'s knight chases the robber.`);
   return ok();
+}
+
+// ---- Cities & Knights: the barbarians ----
+
+function rollEventDie(): EventDie {
+  const r = Math.floor(Math.random() * 6);
+  // 3 of 6 faces are the barbarian ship; the rest are improvement gates.
+  return r < 3 ? "barbarian" : r === 3 ? "trade" : r === 4 ? "politics" : "science";
+}
+
+function activeKnightStrength(state: GameState, color: PlayerColor): number {
+  return (state.knights ?? [])
+    .filter((k) => k.owner === color && k.active)
+    .reduce((s, k) => s + k.rank, 0);
+}
+
+function pipValue(state: GameState, vertexId: number): number {
+  const v = state.board.vertices[vertexId];
+  return v.hexIds.reduce((sum, h) => {
+    const n = state.board.hexes[h].number;
+    return sum + (n == null ? 0 : 6 - Math.abs(7 - n));
+  }, 0);
+}
+
+// Reduce a player's least-valuable non-metropolis city back to a settlement.
+function pillageCity(state: GameState, color: PlayerColor) {
+  const cities = state.buildings.filter(
+    (b) => b.owner === color && b.kind === "city" && !b.metropolis
+  );
+  if (cities.length === 0) {
+    log(state, `${nameOf(state, color)}'s cities held (metropolis walls stood firm).`);
+    return;
+  }
+  cities.sort((a, b) => pipValue(state, a.vertexId) - pipValue(state, b.vertexId));
+  cities[0].kind = "settlement";
+  log(state, `Barbarians sacked one of ${nameOf(state, color)}'s cities.`);
+}
+
+// The barbarian ship has arrived: compare total active knight strength to the
+// number of cities, award Defender of Catan or pillage the weakest, then reset.
+function resolveBarbarianAttack(state: GameState) {
+  const cityCount = state.buildings.filter((b) => b.kind === "city").length;
+  const strengths = state.players.map((p) => ({
+    p,
+    str: activeKnightStrength(state, p.color),
+  }));
+  const totalStrength = strengths.reduce((s, x) => s + x.str, 0);
+  log(state, `⚔️ Barbarians attack! Knights ${totalStrength} vs ${cityCount} cities.`);
+
+  if (totalStrength >= cityCount) {
+    const max = Math.max(0, ...strengths.map((x) => x.str));
+    const top = strengths.filter((x) => x.str === max && max > 0);
+    if (top.length === 1) {
+      top[0].p.defenderTokens = (top[0].p.defenderTokens ?? 0) + 1;
+      log(state, `${top[0].p.name} is Defender of Catan (+1 VP).`);
+    } else if (top.length > 1) {
+      log(state, "Catan is defended — no single hero this time.");
+    } else {
+      log(state, "The barbarians found no defenders, but did no harm.");
+    }
+  } else {
+    const cityOwners = state.players.filter((p) =>
+      state.buildings.some((b) => b.owner === p.color && b.kind === "city")
+    );
+    const minStr = Math.min(...cityOwners.map((p) => activeKnightStrength(state, p.color)));
+    for (const p of cityOwners) {
+      if (activeKnightStrength(state, p.color) === minStr) pillageCity(state, p.color);
+    }
+  }
+
+  // Every knight is spent defending and returns to the inactive state.
+  for (const k of state.knights ?? []) k.active = false;
+  state.barbarianStep = 0;
+}
+
+// Roll the event die and advance / trigger the barbarians (gates are Phase 4).
+function resolveEventDie(state: GameState) {
+  const face = rollEventDie();
+  state.eventDie = face;
+  if (face === "barbarian") {
+    state.barbarianStep = Math.min(BARBARIAN_TRACK_LENGTH, (state.barbarianStep ?? 0) + 1);
+    log(state, `The barbarian ship advances (${state.barbarianStep}/${BARBARIAN_TRACK_LENGTH}).`);
+    if (state.barbarianStep >= BARBARIAN_TRACK_LENGTH) resolveBarbarianAttack(state);
+  }
 }
 
 // ---- Dev cards ----
