@@ -21,6 +21,7 @@ export function GameScreen({
   const [lobby, setLobby] = useState<LobbyGame | null>(null);
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
   const [knightMoveFrom, setKnightMoveFrom] = useState<number | null>(null);
+  const [selectedKnight, setSelectedKnight] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const joinAttempted = useRef(false);
 
@@ -29,6 +30,7 @@ export function GameScreen({
   useEffect(() => {
     setBuildMode(null);
     setKnightMoveFrom(null);
+    setSelectedKnight(null);
   }, [phaseKey]);
 
   // After playing Road Building (or any free-road effect), drop straight into
@@ -147,6 +149,8 @@ export function GameScreen({
           clearBuildMode={() => setBuildMode(null)}
           knightMoveFrom={knightMoveFrom}
           setKnightMoveFrom={setKnightMoveFrom}
+          selectedKnight={selectedKnight}
+          setSelectedKnight={setSelectedKnight}
         />
       </div>
 
@@ -160,13 +164,17 @@ export function GameScreen({
         setBuildMode={(m) => {
           setBuildMode(m);
           setKnightMoveFrom(null);
+          setSelectedKnight(null);
         }}
         knightMoveFrom={knightMoveFrom}
         startKnightMove={(v) => {
           setBuildMode(null);
+          setSelectedKnight(null);
           setKnightMoveFrom(v);
         }}
         cancelKnightMove={() => setKnightMoveFrom(null)}
+        selectedKnight={selectedKnight}
+        setSelectedKnight={setSelectedKnight}
       />
     </div>
   );

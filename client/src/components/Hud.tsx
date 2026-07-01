@@ -198,6 +198,8 @@ export function Hud({
   knightMoveFrom = null,
   startKnightMove,
   cancelKnightMove,
+  selectedKnight = null,
+  setSelectedKnight,
 }: {
   state: GameState;
   you: PlayerColor | null;
@@ -209,6 +211,8 @@ export function Hud({
   knightMoveFrom?: number | null;
   startKnightMove?: (vertexId: number) => void;
   cancelKnightMove?: () => void;
+  selectedKnight?: number | null;
+  setSelectedKnight?: (v: number | null) => void;
 }) {
   const me = state.players.find((p) => p.color === you) ?? null;
   const isYourTurn = state.players[state.currentPlayerIndex]?.color === you;
@@ -533,6 +537,21 @@ export function Hud({
           <button className="btn sm ghost" onClick={() => cancelKnightMove?.()}>Cancel</button>
         </div>
       )}
+      {ck && selectedKnight != null && me && (() => {
+        const k = state.knights?.find((kk) => kk.vertexId === selectedKnight && kk.owner === you);
+        if (!k) return null;
+        return (
+          <SelectedKnightBar
+            state={state}
+            me={me}
+            knight={k}
+            canAct={isYourTurn && state.phase === "main"}
+            send={send}
+            onMove={(v) => startKnightMove?.(v)}
+            onClose={() => setSelectedKnight?.(null)}
+          />
+        );
+      })()}
 
       {/* Discard panel */}
       {owesDiscard ? (
@@ -606,6 +625,10 @@ export function Hud({
               }}
               onMove={(v) => {
                 startKnightMove?.(v);
+                setPanel("none");
+              }}
+              onSelect={(v) => {
+                setSelectedKnight?.(v);
                 setPanel("none");
               }}
             />
@@ -1350,6 +1373,81 @@ function ImprovePanel({
   );
 }
 
+// A focused action bar for the single knight tapped on the board, so it's
+// unambiguous which knight you're activating / promoting / moving.
+function SelectedKnightBar({
+  state,
+  me,
+  knight,
+  canAct,
+  send,
+  onMove,
+  onClose,
+}: {
+  state: GameState;
+  me: PlayerState;
+  knight: KnightPiece;
+  canAct: boolean;
+  send: (msg: ClientMessage) => void;
+  onMove: (vertexId: number) => void;
+  onClose: () => void;
+}) {
+  const afford = (cost: Partial<ResourceCounts>) =>
+    RESOURCES.every((r) => me.resources[r] >= (cost[r] ?? 0));
+  const politics = me.improvements?.politics ?? 0;
+  const canPromoteRank =
+    knight.rank < KNIGHT_MAX_RANK &&
+    (knight.rank + 1 < KNIGHT_MAX_RANK || politics >= MIGHTY_KNIGHT_POLITICS_LEVEL);
+  const adjacentRobber = state.board.vertices[knight.vertexId].hexIds.includes(state.board.robberHexId);
+  const v = knight.vertexId;
+  return (
+    <div className="prompt-bar selected-knight">
+      <span className={`sk-badge rank-${knight.rank} ${knight.active ? "active" : "idle"}`}>
+        ⚔️ {KNIGHT_RANK_NAME[knight.rank]} <small>{knight.active ? "active" : "idle"}</small>
+      </span>
+      <span className="sk-actions">
+        {!knight.active && (
+          <button
+            className="btn sm primary"
+            disabled={!canAct || !afford(KNIGHT_ACTIVATE_COST)}
+            title="Activate (1 grain)"
+            onClick={() => send({ type: "activate_knight", vertexId: v })}
+          >
+            Activate 🌾
+          </button>
+        )}
+        <button
+          className="btn sm"
+          disabled={!canAct || !canPromoteRank || !afford(KNIGHT_PROMOTE_COST)}
+          title={
+            knight.rank + 1 >= KNIGHT_MAX_RANK && politics < MIGHTY_KNIGHT_POLITICS_LEVEL
+              ? "Needs Politics level 3"
+              : "Promote (1 wool, 1 ore)"
+          }
+          onClick={() => send({ type: "promote_knight", vertexId: v })}
+        >
+          Promote ⬆
+        </button>
+        {knight.active && (
+          <button className="btn sm" disabled={!canAct} onClick={() => onMove(v)}>
+            Move
+          </button>
+        )}
+        {knight.active && adjacentRobber && (
+          <button
+            className="btn sm"
+            disabled={!canAct}
+            onClick={() => send({ type: "knight_chase_robber", vertexId: v })}
+          >
+            Chase robber
+          </button>
+        )}
+        <button className="btn sm ghost" onClick={onClose} aria-label="Deselect">✕</button>
+      </span>
+    </div>
+  );
+}
+
 // Cities & Knights: recruit, activate, promote, move and deploy knights.
 function KnightsPanel({
   state,
@@ -1357,12 +1455,14 @@ function KnightsPanel({
   send,
   onRecruit,
   onMove,
+  onSelect,
 }: {
   state: GameState;
   me: PlayerState;
   send: (msg: ClientMessage) => void;
   onRecruit: () => void;
   onMove: (vertexId: number) => void;
+  onSelect: (vertexId: number) => void;
 }) {
   const afford = (cost: Partial<ResourceCounts>) =>
     RESOURCES.every((r) => me.resources[r] >= (cost[r] ?? 0));
@@ -1385,8 +1485,10 @@ function KnightsPanel({
           ＋ Recruit 🐑1 ⛰️1
         </button>
       </div>
-      {mine.length === 0 && (
+      {mine.length === 0 ? (
         <p className="muted knights-empty">No knights yet. Recruit one to defend Catan.</p>
+      ) : (
+        <p className="muted knights-empty">Tap a knight here (or on the board) to select it, then act.</p>
       )}
       {mine.map((k) => {
         const canActivate = !k.active && afford(KNIGHT_ACTIVATE_COST);
@@ -1396,10 +1498,15 @@ function KnightsPanel({
         const canPromote = canPromoteRank && afford(KNIGHT_PROMOTE_COST);
         return (
           <div key={k.vertexId} className="knight-row">
-            <span className={`knight-badge rank-${k.rank} ${k.active ? "active" : "idle"}`}>
+            <button
+              type="button"
+              className={`knight-badge as-btn rank-${k.rank} ${k.active ? "active" : "idle"}`}
+              title="Highlight this knight on the board"
+              onClick={() => onSelect(k.vertexId)}
+            >
               ⚔️ {KNIGHT_RANK_NAME[k.rank]}
               <small>{k.active ? "active" : "idle"}</small>
-            </span>
+            </button>
             <span className="knight-actions">
               {!k.active && (
                 <button
