@@ -178,9 +178,10 @@ function bankRate(state: GameState, color: PlayerColor, resource: Resource): num
     const port = state.board.vertices[b.vertexId].port;
     if (port) ports.add(port);
   }
-  if (ports.has(resource)) return 2;
-  if (ports.has("any")) return 3;
-  return 4;
+  const base = ports.has(resource) ? 2 : ports.has("any") ? 3 : 4;
+  // Merchant Fleet: every bank trade this turn is at least 2:1.
+  const me = state.players.find((p) => p.color === color);
+  return me?.tradeFleetTurn ? Math.min(2, base) : base;
 }
 
 function total(p: PlayerState): number {
@@ -1205,8 +1206,12 @@ function BankPanel({
   const [give, setGive] = useState<Resource>("brick");
   const [receive, setReceive] = useState<Resource>("ore");
   const rate = bankRate(state, you, give);
+  const fleet = !!state.players.find((p) => p.color === you)?.tradeFleetTurn;
   return (
     <div className="panel">
+      {fleet && (
+        <p className="fleet-note">⛵ Merchant Fleet active — bank trades are 2:1 this turn.</p>
+      )}
       <div className="row">
         <label>Give
           <select value={give} onChange={(e) => setGive(e.target.value as Resource)}>
