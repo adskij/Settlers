@@ -24,6 +24,7 @@ import {
   type ClientMessage,
   type Commodity,
   type DevCardKind,
+  type EventDie,
   type GameState,
   type ImprovementTrack,
   type KnightPiece,
@@ -54,6 +55,23 @@ const TRACK_META: Record<ImprovementTrack, { icon: string; label: string; metro:
   politics: { icon: "🪙", label: "Politics", metro: "Town Hall → Fortress → Capitol" },
   science: { icon: "📜", label: "Science", metro: "Library → University → Great Wonder" },
 };
+
+const EVENT_DIE_META: Record<EventDie, { icon: string; label: string; cls: string }> = {
+  barbarian: { icon: "🚢", label: "Barbarians", cls: "ev-barbarian" },
+  trade: { icon: "🟡", label: "Trade gate", cls: "ev-trade" },
+  politics: { icon: "🔵", label: "Politics gate", cls: "ev-politics" },
+  science: { icon: "🟢", label: "Science gate", cls: "ev-science" },
+};
+
+// A coloured chip showing the last event-die face rolled.
+function EventDieChip({ face }: { face: EventDie }) {
+  const m = EVENT_DIE_META[face];
+  return (
+    <span className={`event-die-chip ${m.cls}`} title={`Event die: ${m.label}`}>
+      {m.icon} {m.label}
+    </span>
+  );
+}
 
 function isCK(state: GameState): boolean {
   return state.variant === "cities_and_knights";
@@ -636,7 +654,16 @@ function PromptText({
   if (state.phase === "rolling")
     return <span>{isYourTurn ? "Roll the dice to begin your turn." : "Waiting for the roll…"}</span>;
   if (state.dice)
-    return <span>Rolled {state.dice[0] + state.dice[1]} 🎲 ({state.dice[0]}+{state.dice[1]})</span>;
+    return (
+      <span className="roll-line">
+        Rolled {state.dice[0] + state.dice[1]} 🎲 ({state.dice[0]}+{state.dice[1]})
+        {state.eventDie && (
+          <>
+            {" "}·<EventDieChip face={state.eventDie} />
+          </>
+        )}
+      </span>
+    );
   return <span>{isYourTurn ? "Build, trade, or end your turn." : "Opponent's turn."}</span>;
 }
 
@@ -679,12 +706,6 @@ function BarbarianTracker({ state }: { state: GameState }) {
   const strength = state.players.reduce((s, p) => s + knightStrengthOf(state, p.color), 0);
   const cities = state.buildings.filter((b) => b.kind === "city").length;
   const safe = strength >= cities;
-  const eventLabel: Record<string, string> = {
-    barbarian: "🚢 Barbarians advanced",
-    trade: "🟡 Trade gate",
-    politics: "🔵 Politics gate",
-    science: "🟢 Science gate",
-  };
   return (
     <div className={`barbarian-tracker ${step >= total - 1 ? "imminent" : ""}`}>
       <div className="bt-head">
@@ -699,7 +720,10 @@ function BarbarianTracker({ state }: { state: GameState }) {
         ))}
       </div>
       {state.eventDie && (
-        <div className="bt-event">{eventLabel[state.eventDie] ?? state.eventDie}</div>
+        <div className="bt-event">
+          <span className="bt-event-label">Last event die:</span>
+          <EventDieChip face={state.eventDie} />
+        </div>
       )}
     </div>
   );
