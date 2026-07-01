@@ -440,6 +440,24 @@ input, select {
 .metro-hint { color: #d8a52a; font-style: normal; font-weight: 800; font-size: 12px; }
 .metro-flag { color: #d8a52a; }
 
+.knight-hint { display: flex; align-items: center; gap: 8px; }
+.knights-panel { display: flex; flex-direction: column; gap: 8px; }
+.knights-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.knights-empty { margin: 2px 0; }
+.knight-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  border: 1px solid var(--bg-2); border-radius: 9px; padding: 6px 9px; flex-wrap: wrap;
+}
+.knight-badge {
+  display: inline-flex; align-items: center; gap: 5px; font-weight: 800; font-size: 13px;
+}
+.knight-badge small {
+  font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 1px 5px; border-radius: 6px; background: var(--bg-2); color: var(--muted);
+}
+.knight-badge.active small { background: #1f5b34; color: #b9f0cd; }
+.knight-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
 /* ---- Larger screens: board beside HUD ---- */
 @media (min-width: 900px) and (orientation: landscape) {
   .game-screen { flex-direction: row; flex-wrap: wrap; }
