@@ -910,18 +910,98 @@ function ProgressCardModal({
   );
 }
 
-// A high-level explainer of the Cities & Knights expansion.
+// A high-level explainer of the Cities & Knights expansion. Each topic expands
+// to a full, in-depth description when tapped.
+const CK_RULES: { icon: string; title: string; body: string; detail: string[] }[] = [
+  {
+    icon: "🪙",
+    title: "Commodities",
+    body: "Your cities produce a commodity on top of the base resource.",
+    detail: [
+      "There are three commodities: coin (from mountains/ore cities), paper (from forest/lumber cities) and cloth (from pasture/wool cities).",
+      "When a city's number is rolled it yields 1 base resource AND 1 matching commodity. Cities on hills (brick) and fields (grain) make no commodity — they still produce 2 of the base resource, as in the base game.",
+      "Settlements always produce just 1 base resource and never a commodity, so upgrading to a city is how you turn on commodity income.",
+      "Commodities sit in your hand and count toward the 7-card limit: on a 7 you discard half of your resources AND commodities together.",
+    ],
+  },
+  {
+    icon: "🏛️",
+    title: "City improvements & metropolis",
+    body: "Spend commodities to climb three tracks; reach level 4 first for a metropolis.",
+    detail: [
+      "The three tracks are Trade (bought with cloth), Politics (coin) and Science (paper). Advancing to level n costs n commodities of that type — so 1, then 2, 3, 4 and 5.",
+      "Higher levels let you draw progress cards: on a matching coloured gate you draw if your level is at least the red die's value.",
+      "The FIRST player to reach level 4 on a track builds a metropolis on one of their cities, worth 2 victory points. If a rival later reaches level 5 on that same track, they take the metropolis from you.",
+      "Politics level 3 (Fortress) is also what lets you promote knights all the way to Mighty.",
+    ],
+  },
+  {
+    icon: "⚔️",
+    title: "Knights",
+    body: "Recruit, activate and promote knights to defend and harass.",
+    detail: [
+      "Recruit a knight for 1 wool + 1 ore on an empty intersection connected to your roads (up to 6 knights).",
+      "Activate a knight for 1 grain — only ACTIVE knights can act or help defend against the barbarians.",
+      "Promote for 1 wool + 1 ore to raise its rank: Basic (strength 1) → Strong (2) → Mighty (3). Promoting to Mighty requires Politics level 3.",
+      "An active knight can move along your roads to an empty spot, displace a weaker enemy knight, or chase the robber off a hex it sits next to. Taking an action (or defending) deactivates the knight, so you must re-pay grain to use it again.",
+    ],
+  },
+  {
+    icon: "🚢",
+    title: "Barbarians",
+    body: "The event die advances a ship that periodically attacks the island.",
+    detail: [
+      "Every roll also rolls the coloured event die. Three of its six faces show the barbarian ship, which advances one step each time — seven steps and it attacks.",
+      "On arrival, the combined strength of ALL players' active knights is compared to the total number of cities on the board.",
+      "If knights ≥ cities the island is defended; if cities win, the player (or players) with the least active knight strength each lose one city — their least-valuable non-metropolis city is downgraded to a settlement.",
+      "After every attack all knights deactivate and the ship resets to the start, so defending is a recurring effort.",
+    ],
+  },
+  {
+    icon: "🛡️",
+    title: "Defender of Catan",
+    body: "Repel the barbarians as the strongest defender for a victory point.",
+    detail: [
+      "When the barbarians are driven off, the single player with the most active knight strength earns a Defender of Catan token worth 1 victory point.",
+      "If two or more players tie for the most strength, no token is awarded that time.",
+      "Tokens accumulate over the game and are a legitimate route to victory — a knight-focused player can win largely on defense.",
+    ],
+  },
+  {
+    icon: "📜",
+    title: "Progress cards",
+    body: "Coloured gates let you draw powerful one-off cards.",
+    detail: [
+      "The other three event-die faces are gates: yellow (trade), blue (politics) and green (science).",
+      "On a gate, every player whose improvement level in that discipline is at least the red number die draws a card from that deck. Invest in a track to draw its cards more often.",
+      "You may hold up to 4 progress cards; their contents are hidden from opponents and they're played on your turn.",
+      "Trade cards steal and monopolise cards; politics cards manipulate knights, the robber and hands; science cards discount building and hand you resources. In this build the base development cards are replaced entirely by these decks.",
+    ],
+  },
+  {
+    icon: "🧱",
+    title: "City walls",
+    body: "Fortify cities to survive a 7 with a bigger hand.",
+    detail: [
+      "Build a wall on one of your cities for 2 brick (or free with the Engineer progress card).",
+      "Each wall you own raises the number of cards you may hold before a 7 forces a discard, by 2: from 7 up to 9, 11, then 13 with three walls.",
+      "If a walled city is sacked by the barbarians, the wall is destroyed along with the city's upgrade.",
+    ],
+  },
+  {
+    icon: "🏆",
+    title: "Winning",
+    body: "First to 13 victory points wins.",
+    detail: [
+      "Cities & Knights is played to 13 victory points, up from 10 in the base game.",
+      "Points come from settlements (1), cities (2), each metropolis (2), Longest Road (2), each Defender of Catan token (1), holding the Merchant (1), and hidden victory-point progress cards.",
+      "As always, you can only win on your own turn — reaching 13 during another player's turn just means you win as soon as your turn comes around.",
+    ],
+  },
+];
+
 function RulesModal({ onClose }: { onClose: () => void }) {
-  const rules: { icon: string; title: string; body: string }[] = [
-    { icon: "🪙", title: "Commodities", body: "Your cities produce a commodity (coin from mountains, paper from forest, cloth from pasture) on top of the base resource." },
-    { icon: "🏛️", title: "City improvements", body: "Spend commodities on the Trade, Politics and Science tracks. Reaching level 4 first builds a metropolis worth 2 victory points." },
-    { icon: "⚔️", title: "Knights", body: "Recruit, activate and promote knights. They defend Catan, chase the robber and push rival knights off the board." },
-    { icon: "🚢", title: "Barbarians", body: "The event die advances a barbarian ship. When it lands, your active knights must together match the number of cities — or the weakest players lose a city." },
-    { icon: "🛡️", title: "Defender of Catan", body: "Repel the barbarians as the strongest defender to earn a Defender of Catan token, worth 1 victory point." },
-    { icon: "📜", title: "Progress cards", body: "Roll a coloured gate and, if your matching improvement is high enough, draw a progress card with a powerful one-off effect." },
-    { icon: "🧱", title: "City walls", body: "Fortify a city (2 brick) to raise the number of cards you may hold before a 7 forces you to discard." },
-    { icon: "🏆", title: "Winning", body: "First to 13 victory points wins — from settlements, cities, metropolises, defender tokens, and more." },
-  ];
+  const [open, setOpen] = useState<string | null>(CK_RULES[0].title);
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal rules-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Cities & Knights rules">
@@ -929,16 +1009,37 @@ function RulesModal({ onClose }: { onClose: () => void }) {
           <h3>🏰 Cities &amp; Knights</h3>
           <button className="link-btn" onClick={onClose} aria-label="Close">✕</button>
         </div>
+        <p className="rules-intro muted">Tap a topic for the full rules.</p>
         <ul className="rules-list">
-          {rules.map((r) => (
-            <li key={r.title} className="rules-row">
-              <span className="rules-ic">{r.icon}</span>
-              <span>
-                <strong>{r.title}</strong>
-                <span className="rules-body">{r.body}</span>
-              </span>
-            </li>
-          ))}
+          {CK_RULES.map((r) => {
+            const isOpen = open === r.title;
+            return (
+              <li key={r.title} className={`rules-row ${isOpen ? "open" : ""}`}>
+                <button
+                  type="button"
+                  className="rules-trigger"
+                  aria-expanded={isOpen}
+                  onClick={() => setOpen(isOpen ? null : r.title)}
+                >
+                  <span className="rules-ic">{r.icon}</span>
+                  <span className="rules-head-text">
+                    <strong>{r.title}</strong>
+                    <span className="rules-body">{r.body}</span>
+                  </span>
+                  <span className={`rules-chevron ${isOpen ? "open" : ""}`} aria-hidden>
+                    ▸
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="rules-detail">
+                    {r.detail.map((p, i) => (
+                      <p key={i}>{p}</p>
+                    ))}
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>
