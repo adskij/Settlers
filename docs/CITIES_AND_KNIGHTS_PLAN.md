@@ -35,10 +35,31 @@
 >   progress + strength-vs-cities balance + last event-die face) and defender
 >   tokens on player cards.
 >
-> Verified: 16/16 all-bot games finish in **both** variants; metropolises appear
-> broadly; across 16 C&K games the barbarians attacked 38 times, Defender of
-> Catan was awarded 25 times, and cities were pillaged when defense fell short.
-> Phase 4 (progress cards + city walls + gate draws) remains to do.
+> - *Phase 4 (progress cards + city walls):* the base development deck is
+>   replaced by three progress-card decks (18 card types, 2 copies each). Gate
+>   faces of the event die let each qualifying player (improvement level ≥ the
+>   red die) draw from the matching deck, up to a 4-card hand limit; contents are
+>   hidden from opponents. All 18 cards are implemented (Master Merchant, Merchant,
+>   Merchant Fleet, Resource/Trade Monopoly, Commercial Harbor, Warlord, Smith,
+>   Bishop, Saboteur, Spy, Wedding, Alchemist, Crane, Engineer, Irrigation,
+>   Mining, Printer). **City walls** (2 brick) raise the discard limit by 2 each
+>   and are stripped when a city is pillaged. Bots draw and play cards and
+>   fortify cities. Client: a deck-coloured progress-card hand with a play modal
+>   (target pickers for the monopolies/alchemist), a Wall build tool, and a
+>   high-level **C&K Rules** card next to Costs.
+>
+> Verified: 16/16 all-bot games finish in **both** variants; progress cards are
+> drawn and played and city walls built, base game untouched.
+>
+> **Cities & Knights is now feature-complete across Phases 0–4.**
+>
+> *Note on progress-card fidelity:* effects resolve immediately server-side and,
+> where the tabletop game asks the active player to choose an opponent/target,
+> the engine picks a sensible target automatically (e.g. the top-VP player, the
+> hex touching the most opponents). The monopolies and Alchemist accept an
+> explicit pick from the UI. A few piece-heavy cards (Merchant, Bishop, Deserter-
+> style displacement) are modelled as faithful approximations rather than full
+> board interactions; these can be upgraded to fully interactive later.
 
 ## 1. Goals & guardrails
 
