@@ -1226,7 +1226,9 @@ function applyProgressEffect(
   switch (msg.card) {
     case "master_merchant": {
       const target = topVPOpponent(state, color);
-      if (target) stealN(target, actor, 2);
+      if (!target || cardPool(target).length === 0)
+        return fail("The leading player has no cards to take.");
+      stealN(target, actor, 2);
       return ok();
     }
     case "merchant": {
@@ -1271,6 +1273,12 @@ function applyProgressEffect(
       return ok();
     }
     case "commercial_harbor": {
+      const anyCom = opponents(state, color).some(
+        (p) => p.commodities && COMMODITIES.some((c) => p.commodities![c] > 0)
+      );
+      const anyRes = RESOURCES.some((r) => actor.resources[r] > 0);
+      if (!anyCom) return fail("No opponent has a commodity to trade for.");
+      if (!anyRes) return fail("You have no resource to offer in exchange.");
       for (const p of opponents(state, color)) {
         if (!p.commodities || !actor.commodities) continue;
         const com = COMMODITIES.filter((c) => p.commodities![c] > 0).sort(
@@ -1320,23 +1328,22 @@ function applyProgressEffect(
           bestHex = hex.id;
         }
       }
-      if (bestHex >= 0) {
-        state.board.robberHexId = bestHex;
-        const victims = new Set<PlayerColor>();
-        for (const b of state.buildings)
-          if (b.owner !== color && state.board.vertices[b.vertexId].hexIds.includes(bestHex))
-            victims.add(b.owner);
-        for (const vc of victims) stealN(playerByColor(state, vc)!, actor, 1);
-      }
+      if (bestHex < 0 || bestCount <= 0) return fail("No opponent to rob with the Bishop.");
+      state.board.robberHexId = bestHex;
+      const victims = new Set<PlayerColor>();
+      for (const b of state.buildings)
+        if (b.owner !== color && state.board.vertices[b.vertexId].hexIds.includes(bestHex))
+          victims.add(b.owner);
+      for (const vc of victims) stealN(playerByColor(state, vc)!, actor, 1);
       return ok();
     }
     case "saboteur": {
       const myVP = victoryPoints(state, color);
-      for (const p of opponents(state, color)) {
-        if (victoryPoints(state, p.color) >= myVP) {
-          const total = totalResources(p) + totalCommodities(p);
-          discardN(p, Math.floor(total / 2));
-        }
+      const affected = opponents(state, color).filter((p) => victoryPoints(state, p.color) >= myVP);
+      if (affected.length === 0) return fail("No opponent is doing as well as you.");
+      for (const p of affected) {
+        const total = totalResources(p) + totalCommodities(p);
+        discardN(p, Math.floor(total / 2));
       }
       return ok();
     }
@@ -1344,18 +1351,18 @@ function applyProgressEffect(
       const target = opponents(state, color)
         .filter((p) => (p.progressCards?.length ?? 0) > 0)
         .sort((a, b) => (b.progressCards!.length ?? 0) - (a.progressCards!.length ?? 0))[0];
-      if (target && target.progressCards && target.progressCards.length) {
-        const i = Math.floor(Math.random() * target.progressCards.length);
-        const [taken] = target.progressCards.splice(i, 1);
-        (actor.progressCards ??= []).push(taken);
-      }
+      if (!target || !target.progressCards || !target.progressCards.length)
+        return fail("No opponent is holding a progress card.");
+      const i = Math.floor(Math.random() * target.progressCards.length);
+      const [taken] = target.progressCards.splice(i, 1);
+      (actor.progressCards ??= []).push(taken);
       return ok();
     }
     case "wedding": {
       const myVP = victoryPoints(state, color);
-      for (const p of opponents(state, color)) {
-        if (victoryPoints(state, p.color) > myVP) stealN(p, actor, 2);
-      }
+      const ahead = opponents(state, color).filter((p) => victoryPoints(state, p.color) > myVP);
+      if (ahead.length === 0) return fail("No opponent is ahead of you.");
+      for (const p of ahead) stealN(p, actor, 2);
       return ok();
     }
     case "alchemist": {
@@ -1383,11 +1390,13 @@ function applyProgressEffect(
     }
     case "irrigation": {
       const fields = borderingHexes(state, color, "grain").length;
+      if (fields === 0) return fail("No field (grain hex) borders your buildings.");
       actor.resources.grain += 2 * fields;
       return ok();
     }
     case "mining": {
       const mountains = borderingHexes(state, color, "ore").length;
+      if (mountains === 0) return fail("No mountain (ore hex) borders your buildings.");
       actor.resources.ore += 2 * mountains;
       return ok();
     }

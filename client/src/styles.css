@@ -456,7 +456,22 @@ input, select {
   padding: 1px 5px; border-radius: 6px; background: var(--bg-2); color: var(--muted);
 }
 .knight-badge.active small { background: #1f5b34; color: #b9f0cd; }
+.knight-badge.as-btn { background: var(--bg-2); border: 1px solid transparent; cursor: pointer; padding: 4px 8px; border-radius: 8px; color: var(--text); }
+.knight-badge.as-btn:hover { border-color: var(--accent); }
 .knight-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Selected-knight action bar (from tapping a knight on the board) */
+.selected-knight {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--accent); border-radius: 10px; background: var(--card); padding: 8px 10px;
+}
+.sk-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: 13px; }
+.sk-badge small {
+  font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 1px 5px; border-radius: 6px; background: var(--bg-2); color: var(--muted);
+}
+.sk-badge.active small { background: #1f5b34; color: #b9f0cd; }
+.sk-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
 .barbarian-tracker {
   background: var(--card); border: 1px solid var(--bg-2); border-radius: 10px;

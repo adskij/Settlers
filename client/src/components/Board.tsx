@@ -61,6 +61,8 @@ export function Board({
   clearBuildMode,
   knightMoveFrom,
   setKnightMoveFrom,
+  selectedKnight,
+  setSelectedKnight,
 }: {
   state: GameState;
   you: PlayerColor | null;
@@ -69,6 +71,8 @@ export function Board({
   clearBuildMode: () => void;
   knightMoveFrom?: number | null;
   setKnightMoveFrom?: (v: number | null) => void;
+  selectedKnight?: number | null;
+  setSelectedKnight?: (v: number | null) => void;
 }) {
   const board = state.board;
   const [robberHex, setRobberHex] = useState<number | null>(null);
@@ -160,6 +164,12 @@ export function Board({
         send({ type: "move_knight", fromVertexId: knightMoveFrom, toVertexId: vertexId });
       }
       setKnightMoveFrom?.(null);
+      return;
+    }
+    // C&K: tap your own knight (with no tool active) to select it for actions.
+    const myKnight = state.knights?.find((k) => k.vertexId === vertexId && k.owner === you);
+    if (myKnight && state.phase === "main" && !buildMode) {
+      setSelectedKnight?.(selectedKnight === vertexId ? null : vertexId);
       return;
     }
     if (state.phase === "setup" && state.setupStep === "settlement") {
@@ -376,11 +386,13 @@ export function Board({
           if (k) {
             const isSource = knightMoveFrom === v.id;
             const targetable = knightHighlights.has(v.id); // displace target
+            const isSelected = selectedKnight === v.id;
+            const mine = k.owner === you;
             return (
               <g
                 key={v.id}
                 filter="url(#piece-shadow)"
-                className={targetable ? "vertex-clickable" : ""}
+                className={targetable || (mine && isYourTurn && state.phase === "main") ? "vertex-clickable" : ""}
                 onClick={() => onVertex(v.id)}
               >
                 <KnightToken
@@ -389,7 +401,7 @@ export function Board({
                   fill={PLAYER_FILL[k.owner]}
                   rank={k.rank}
                   active={k.active}
-                  highlighted={isSource || targetable}
+                  highlighted={isSource || targetable || isSelected}
                 />
               </g>
             );
