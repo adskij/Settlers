@@ -6,6 +6,37 @@ export const RESOURCES: Resource[] = ["brick", "lumber", "wool", "grain", "ore"]
 // Terrain produces a resource; "desert" produces nothing.
 export type Terrain = Resource | "desert";
 
+// ---- Cities & Knights expansion ----
+
+/** Which base ruleset a game runs. "base" games ignore every C&K field. */
+export type GameVariant = "base" | "cities_and_knights";
+
+/** Commodities are the "second tier" goods that cities produce in C&K. */
+export type Commodity = "coin" | "paper" | "cloth";
+export const COMMODITIES: Commodity[] = ["coin", "paper", "cloth"];
+export type CommodityCounts = Record<Commodity, number>;
+
+/** A city on this terrain also yields 1 of the matching commodity (C&K). */
+export const TERRAIN_COMMODITY: Partial<Record<Terrain, Commodity>> = {
+  ore: "coin", // mountains
+  lumber: "paper", // forest
+  wool: "cloth", // pasture
+};
+
+/** The three city-improvement tracks. */
+export type ImprovementTrack = "trade" | "politics" | "science";
+export const IMPROVEMENT_TRACKS: ImprovementTrack[] = ["trade", "politics", "science"];
+
+/** Commodity spent to advance each track. */
+export const TRACK_COMMODITY: Record<ImprovementTrack, Commodity> = {
+  trade: "cloth",
+  politics: "coin",
+  science: "paper",
+};
+
+/** Per-player level (0..5) on each improvement track. */
+export type ImprovementLevels = Record<ImprovementTrack, number>;
+
 export type PlayerColor = "red" | "blue" | "white" | "orange";
 export const PLAYER_COLORS: PlayerColor[] = ["red", "blue", "white", "orange"];
 
@@ -67,6 +98,8 @@ export interface BuildingPiece {
   kind: BuildingKind;
   owner: PlayerColor;
   vertexId: number;
+  /** C&K: this city has been raised to a metropolis for the given track. */
+  metropolis?: ImprovementTrack;
 }
 
 export interface RoadPiece {
@@ -91,6 +124,10 @@ export interface PlayerState {
   playedKnights: number;
   victoryPointCards: number; // hidden VP dev cards
   hasPlayedDevCardThisTurn: boolean;
+  /** C&K: coin/paper/cloth on hand. Undefined in base games. */
+  commodities?: CommodityCounts;
+  /** C&K: level (0..5) reached on each city-improvement track. */
+  improvements?: ImprovementLevels;
 }
 
 export type GamePhase =
@@ -116,6 +153,8 @@ export interface TradeOffer {
 
 export interface GameState {
   id: string;
+  /** Which ruleset this game runs. Absent/`"base"` for legacy games. */
+  variant: GameVariant;
   phase: GamePhase;
   board: Board;
   players: PlayerState[];
@@ -142,11 +181,24 @@ export interface GameState {
   log: string[];
   /** Free roads remaining from a Road Building card. */
   freeRoadsRemaining: number;
+  /** C&K: which player holds each track's metropolis (+2 VP, first-to-4). */
+  metropolisOwner?: Record<ImprovementTrack, PlayerColor | null>;
   updatedAt: number;
 }
 
 export const VICTORY_POINTS_TO_WIN = 10;
+/** Cities & Knights raises the target to 13 victory points. */
+export const CK_VICTORY_POINTS_TO_WIN = 13;
 export const MAX_HAND_BEFORE_DISCARD = 7;
+
+/** C&K city-improvement tracks run from level 0 to 5. */
+export const MAX_IMPROVEMENT_LEVEL = 5;
+/** Reaching this level on a track claims that track's metropolis (+2 VP). */
+export const METROPOLIS_LEVEL = 4;
+/** Advancing a track to level n costs n commodities of the track's type. */
+export function improvementCost(nextLevel: number): number {
+  return nextLevel;
+}
 
 export const BUILD_COSTS: Record<string, Partial<ResourceCounts>> = {
   road: { brick: 1, lumber: 1 },

@@ -5,13 +5,26 @@ import {
   PIECE_LIMITS,
   MAX_HAND_BEFORE_DISCARD,
   RESOURCES,
+  COMMODITIES,
   VICTORY_POINTS_TO_WIN,
+  CK_VICTORY_POINTS_TO_WIN,
+  MAX_IMPROVEMENT_LEVEL,
+  METROPOLIS_LEVEL,
+  IMPROVEMENT_TRACKS,
+  TRACK_COMMODITY,
+  TERRAIN_COMMODITY,
+  improvementCost,
   buildDevDeck,
   generateBoard,
   mulberry32,
   type Board,
+  type Commodity,
+  type CommodityCounts,
   type DevCardKind,
   type GameState,
+  type GameVariant,
+  type ImprovementLevels,
+  type ImprovementTrack,
   type PlayerColor,
   type PlayerState,
   type Resource,
@@ -50,14 +63,24 @@ function emptyResources(): ResourceCounts {
   return { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
 }
 
+function emptyCommodities(): CommodityCounts {
+  return { coin: 0, paper: 0, cloth: 0 };
+}
+
+function emptyImprovements(): ImprovementLevels {
+  return { trade: 0, politics: 0, science: 0 };
+}
+
 export function createGame(
   id: string,
   seed: number,
-  seats: SeatInput[]
+  seats: SeatInput[],
+  variant: GameVariant = "base"
 ): InternalGame {
   const board: Board = generateBoard(seed);
   const rng = mulberry32(seed ^ 0x9e3779b9);
   const devDeck = buildDevDeck(rng);
+  const ck = variant === "cities_and_knights";
 
   const players: PlayerState[] = seats.map((s) => ({
     userId: s.userId,
@@ -71,10 +94,12 @@ export function createGame(
     playedKnights: 0,
     victoryPointCards: 0,
     hasPlayedDevCardThisTurn: false,
+    ...(ck ? { commodities: emptyCommodities(), improvements: emptyImprovements() } : {}),
   }));
 
   const state: GameState = {
     id,
+    variant,
     phase: "setup",
     board,
     players,
@@ -93,6 +118,7 @@ export function createGame(
     winner: null,
     log: ["Game started. Place your first settlement."],
     freeRoadsRemaining: 0,
+    ...(ck ? { metropolisOwner: { trade: null, politics: null, science: null } } : {}),
     updatedAt: Date.now(),
   };
 
@@ -136,6 +162,56 @@ function grant(p: PlayerState, gain: Partial<ResourceCounts>) {
   }
 }
 
+// ---- Cities & Knights helpers ----
+
+function isCK(state: GameState): boolean {
+  return state.variant === "cities_and_knights";
+}
+
+function totalCommodities(p: PlayerState): number {
+  if (!p.commodities) return 0;
+  return COMMODITIES.reduce((s, c) => s + (p.commodities![c] ?? 0), 0);
+}
+
+// Total cards that count toward the 7-card discard limit (commodities too in C&K).
+function handSize(p: PlayerState): number {
+  return totalResources(p) + totalCommodities(p);
+}
+
+// Recompute which player owns each track's metropolis: the player with the
+// strictly highest level >= METROPOLIS_LEVEL, keeping the current holder on ties
+// (first-to-reach keeps it until someone strictly surpasses them).
+function updateMetropolis(state: GameState, track: ImprovementTrack) {
+  if (!state.metropolisOwner) return;
+  const current = state.metropolisOwner[track];
+  const currentLevel = current
+    ? playerByColor(state, current)?.improvements?.[track] ?? 0
+    : -1;
+  let owner = current;
+  let bestLevel = current && currentLevel >= METROPOLIS_LEVEL ? currentLevel : -1;
+  if (bestLevel < METROPOLIS_LEVEL) owner = null; // holder slipped below (can't happen, but safe)
+  for (const p of state.players) {
+    const lvl = p.improvements?.[track] ?? 0;
+    if (lvl >= METROPOLIS_LEVEL && lvl > bestLevel) {
+      bestLevel = lvl;
+      owner = p.color;
+    }
+  }
+  if (owner !== current) {
+    state.metropolisOwner[track] = owner;
+    // Move the visible metropolis marker onto (a city of) the new owner.
+    for (const b of state.buildings) {
+      if (b.metropolis === track) delete b.metropolis;
+    }
+    if (owner) {
+      const city = state.buildings.find((b) => b.owner === owner && b.kind === "city")
+        ?? state.buildings.find((b) => b.owner === owner);
+      if (city) city.metropolis = track;
+      log(state, `${nameOf(state, owner)} built the ${track} metropolis (+2 VP).`);
+    }
+  }
+}
+
 // Settlements give 1 VP, cities 2, plus dev-card VPs and bonuses.
 export function victoryPoints(state: GameState, color: PlayerColor): number {
   let vp = 0;
@@ -146,7 +222,18 @@ export function victoryPoints(state: GameState, color: PlayerColor): number {
   if (p) vp += p.victoryPointCards;
   if (state.largestArmyOwner === color) vp += 2;
   if (state.longestRoadOwner === color) vp += 2;
+  // C&K: each metropolis is worth 2 victory points.
+  if (state.metropolisOwner) {
+    for (const track of IMPROVEMENT_TRACKS) {
+      if (state.metropolisOwner[track] === color) vp += 2;
+    }
+  }
   return vp;
+}
+
+// The victory-point target for this game (13 in C&K, 10 in the base game).
+function winTarget(state: GameState): number {
+  return isCK(state) ? CK_VICTORY_POINTS_TO_WIN : VICTORY_POINTS_TO_WIN;
 }
 
 function vertexFree(state: GameState, vertexId: number): boolean {
@@ -263,7 +350,7 @@ function nameOf(state: GameState, color: PlayerColor): string {
 
 function checkWin(state: GameState) {
   const cur = currentPlayer(state);
-  if (victoryPoints(state, cur.color) >= VICTORY_POINTS_TO_WIN) {
+  if (victoryPoints(state, cur.color) >= winTarget(state)) {
     state.phase = "finished";
     state.winner = cur.color;
     log(state, `${cur.name} wins the game!`);
@@ -312,7 +399,9 @@ export function applyAction(
       case "move_robber":
         return moveRobber(game, color, msg.hexId, msg.stealFrom, isCurrent);
       case "discard":
-        return discard(game, color, msg.resources);
+        return discard(game, color, msg.resources, msg.commodities);
+      case "buy_improvement":
+        return buyImprovement(game, color, msg.track, isCurrent);
       case "bank_trade":
         return bankTrade(game, color, msg.give, msg.receive, isCurrent);
       case "offer_trade":
@@ -444,7 +533,7 @@ function rollDice(game: InternalGame, color: PlayerColor, isCurrent: boolean): A
     // Robber: everyone with >7 cards discards half (rounded down).
     state.pendingDiscards = {};
     for (const p of state.players) {
-      const total = totalResources(p);
+      const total = handSize(p);
       if (total > MAX_HAND_BEFORE_DISCARD) {
         state.pendingDiscards[p.color] = Math.floor(total / 2);
       }
@@ -464,15 +553,25 @@ function rollDice(game: InternalGame, color: PlayerColor, isCurrent: boolean): A
 }
 
 function distributeResources(state: GameState, sum: number) {
+  const ck = isCK(state);
   for (const hex of state.board.hexes) {
     if (hex.number !== sum) continue;
     if (hex.id === state.board.robberHexId) continue;
     if (hex.terrain === "desert") continue;
+    const commodity: Commodity | undefined = TERRAIN_COMMODITY[hex.terrain];
     for (const b of state.buildings) {
       const v = state.board.vertices[b.vertexId];
-      if (v.hexIds.includes(hex.id)) {
-        const p = playerByColor(state, b.owner)!;
-        p.resources[hex.terrain as Resource] += b.kind === "city" ? 2 : 1;
+      if (!v.hexIds.includes(hex.id)) continue;
+      const p = playerByColor(state, b.owner)!;
+      if (b.kind === "settlement") {
+        p.resources[hex.terrain as Resource] += 1;
+      } else if (ck && commodity) {
+        // C&K city on a commodity terrain: 1 base resource + 1 commodity.
+        p.resources[hex.terrain as Resource] += 1;
+        if (p.commodities) p.commodities[commodity] += 1;
+      } else {
+        // City on brick/grain (or any city in the base game): 2 base resources.
+        p.resources[hex.terrain as Resource] += 2;
       }
     }
   }
@@ -546,6 +645,40 @@ function buildCity(game: InternalGame, color: PlayerColor, vertexId: number, isC
   pay(actor, BUILD_COSTS.city);
   existing.kind = "city";
   log(state, `${actor.name} upgraded to a city.`);
+  // A new city can host a metropolis the owner already earned but couldn't place.
+  if (isCK(state)) for (const t of IMPROVEMENT_TRACKS) updateMetropolis(state, t);
+  checkWin(state);
+  return ok();
+}
+
+// ---- Cities & Knights: city improvements ----
+
+function buyImprovement(
+  game: InternalGame,
+  color: PlayerColor,
+  track: ImprovementTrack,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  if (!isCK(state)) return fail("City improvements are a Cities & Knights feature.");
+  if (state.phase !== "main") return fail("Improve your cities during your build phase.");
+  if (!isCurrent) return fail("Not your turn.");
+  if (!IMPROVEMENT_TRACKS.includes(track)) return fail("Unknown improvement track.");
+
+  const actor = playerByColor(state, color)!;
+  if (!actor.improvements || !actor.commodities) return fail("Improvements unavailable.");
+  const level = actor.improvements[track];
+  if (level >= MAX_IMPROVEMENT_LEVEL) return fail("That track is already maxed out.");
+
+  const commodity: Commodity = TRACK_COMMODITY[track];
+  const cost = improvementCost(level + 1);
+  if (actor.commodities[commodity] < cost)
+    return fail(`Need ${cost} ${commodity} to reach level ${level + 1}.`);
+
+  actor.commodities[commodity] -= cost;
+  actor.improvements[track] = level + 1;
+  log(state, `${actor.name} advanced ${track} to level ${level + 1}.`);
+  if (level + 1 >= METROPOLIS_LEVEL) updateMetropolis(state, track);
   checkWin(state);
   return ok();
 }
@@ -666,19 +799,27 @@ function moveRobber(
   if (hexId < 0 || hexId >= state.board.hexes.length) return fail("Invalid hex.");
   if (hexId === state.board.robberHexId) return fail("Robber must move to a new hex.");
 
-  state.board.robberHexId = hexId;
-  log(state, `${nameOf(state, color)} moved the robber.`);
-
-  // Determine valid steal targets: players with a building on this hex.
-  const hex = state.board.hexes[hexId];
+  // Determine valid steal targets: players with a building on this hex. Only
+  // players who actually hold a resource card can be robbed — validate BEFORE
+  // moving the robber so a rejected steal doesn't leave the robber half-moved.
   const victims = new Set<PlayerColor>();
   for (const b of state.buildings) {
     const v = state.board.vertices[b.vertexId];
     if (v.hexIds.includes(hexId) && b.owner !== color) victims.add(b.owner);
   }
+  const victimsWithCards = [...victims].filter((c) =>
+    RESOURCES.some((r) => playerByColor(state, c)!.resources[r] > 0)
+  );
+
+  if (stealFrom && !victims.has(stealFrom)) return fail("You can't steal from that player.");
+  // You must name a target only when there's actually someone with cards to rob.
+  if (!stealFrom && victimsWithCards.length > 0)
+    return fail("You must choose a player to steal from.");
+
+  state.board.robberHexId = hexId;
+  log(state, `${nameOf(state, color)} moved the robber.`);
 
   if (stealFrom) {
-    if (!victims.has(stealFrom)) return fail("You can't steal from that player.");
     const victim = playerByColor(state, stealFrom)!;
     const pool: Resource[] = [];
     for (const r of RESOURCES) for (let i = 0; i < victim.resources[r]; i++) pool.push(r);
@@ -688,26 +829,40 @@ function moveRobber(
       playerByColor(state, color)!.resources[r] += 1;
       log(state, `${nameOf(state, color)} stole a card from ${victim.name}.`);
     }
-  } else if (victims.size > 0) {
-    return fail("You must choose a player to steal from.");
   }
 
   state.phase = "main";
   return ok();
 }
 
-function discard(game: InternalGame, color: PlayerColor, resources: Partial<ResourceCounts>): ActionResult {
+function discard(
+  game: InternalGame,
+  color: PlayerColor,
+  resources: Partial<ResourceCounts>,
+  commodities?: Partial<CommodityCounts>
+): ActionResult {
   const { state } = game;
   if (state.phase !== "discard") return fail("No discards required right now.");
   const owed = state.pendingDiscards[color];
   if (!owed) return fail("You don't need to discard.");
   const actor = playerByColor(state, color)!;
 
-  const total = Object.values(resources).reduce((s, n) => s + (n ?? 0), 0);
-  if (total !== owed) return fail(`You must discard exactly ${owed} cards.`);
+  const resTotal = Object.values(resources).reduce((s, n) => s + (n ?? 0), 0);
+  const comTotal = commodities
+    ? Object.values(commodities).reduce((s, n) => s + (n ?? 0), 0)
+    : 0;
+  if (resTotal + comTotal !== owed) return fail(`You must discard exactly ${owed} cards.`);
   if (!canAfford(actor, resources)) return fail("You don't have those cards.");
+  if (commodities && actor.commodities) {
+    for (const c of COMMODITIES) {
+      if ((commodities[c] ?? 0) > actor.commodities[c]) return fail("You don't have those cards.");
+    }
+  }
 
   pay(actor, resources);
+  if (commodities && actor.commodities) {
+    for (const c of COMMODITIES) actor.commodities[c] -= commodities[c] ?? 0;
+  }
   delete state.pendingDiscards[color];
   log(state, `${actor.name} discarded ${owed} cards.`);
 

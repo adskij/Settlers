@@ -1,3 +1,4 @@
+import type { GameVariant } from "@settlers/shared";
 import type { LobbyGame } from "./types.js";
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
@@ -46,10 +47,10 @@ export const api = {
     }),
   me: () => request<{ user: { id: string; username: string } }>("/me"),
   listGames: () => request<{ open: LobbyGame[]; mine: LobbyGame[] }>("/games"),
-  createGame: (name: string) =>
+  createGame: (name: string, variant: GameVariant = "base") =>
     request<{ game: LobbyGame }>("/games", {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, variant }),
     }),
   getGame: (id: string) => request<{ game: LobbyGame }>(`/games/${id}`),
   joinGame: (id: string) =>

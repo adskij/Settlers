@@ -325,6 +325,20 @@ export function Board({
                     strokeWidth={0.4}
                   />
                 )}
+                {b.metropolis && (
+                  // Metropolis: a small gold dome crowning the city (+2 VP).
+                  <g>
+                    <path
+                      d={`M ${v.pos.x - 1.1} ${v.pos.y - 1.4} Q ${v.pos.x} ${v.pos.y - 3.2} ${
+                        v.pos.x + 1.1
+                      } ${v.pos.y - 1.4} Z`}
+                      fill="#f4cf4a"
+                      stroke="#8a6a12"
+                      strokeWidth={0.28}
+                    />
+                    <circle cx={v.pos.x} cy={v.pos.y - 3.1} r={0.42} fill="#f4cf4a" stroke="#8a6a12" strokeWidth={0.2} />
+                  </g>
+                )}
               </g>
             );
           }

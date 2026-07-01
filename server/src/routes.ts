@@ -95,7 +95,9 @@ router.post(
   "/games",
   requireAuth,
   wrap((req, res) => {
-    const lobby = createLobby(req.userId!, req.body?.name ?? "New Game");
+    const variant =
+      req.body?.variant === "cities_and_knights" ? "cities_and_knights" : "base";
+    const lobby = createLobby(req.userId!, req.body?.name ?? "New Game", variant);
     res.json({ game: lobby });
   })
 );

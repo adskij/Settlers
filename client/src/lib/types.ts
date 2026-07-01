@@ -1,4 +1,4 @@
-import type { PlayerColor } from "@settlers/shared";
+import type { GameVariant, PlayerColor } from "@settlers/shared";
 
 export interface LobbyPlayer {
   userId: string;
@@ -13,5 +13,6 @@ export interface LobbyGame {
   name: string;
   hostId: string;
   phase: string;
+  variant: GameVariant;
   players: LobbyPlayer[];
 }

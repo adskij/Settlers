@@ -1,10 +1,23 @@
 # Cities & Knights — Implementation Plan
 
-> Status: **DRAFT for approval.** No gameplay code exists yet. Nothing merges
-> until this plan is approved. This document describes the data model, phases,
-> UI, and a staged delivery roadmap for adding the *Cities & Knights* (C&K)
-> expansion as an **opt-in choice at game setup**, with the base game left
-> fully intact when the toggle is off.
+> Status: **Approved.** Phase 0 (variant toggle) and Phase 1 (commodities +
+> city improvements + metropolis) are **implemented** on this branch. Approved
+> decisions: build Phase 1 first, functional bots, **13 VP** win target, full
+> progress-card set (lands in Phase 4). This document describes the data model,
+> phases, UI, and staged roadmap for the *Cities & Knights* (C&K) expansion as
+> an **opt-in choice at game setup**, with the base game left fully intact when
+> the toggle is off.
+>
+> **Delivered so far (Phase 0 + Phase 1):** `variant: "base" | "cities_and_knights"`
+> threaded lobby → REST → engine → `GameState`; a lobby ruleset toggle; cities
+> on forest/pasture/mountains produce a commodity (paper/cloth/coin); the three
+> improvement tracks with per-level commodity costs; level-4 **metropolis**
+> (+2 VP, first-to-reach, transferable at level 5); commodities counted toward
+> the 7-card discard limit; 13-VP win target; HUD commodity cards, an Improve
+> panel, per-track chips, and a board metropolis marker; bots buy improvements
+> and shed commodities on a 7. Verified: 12/12 all-bot games finish in **both**
+> variants; metropolises appear in 10/12 C&K games. Phases 2–4 (knights,
+> barbarians + event die, progress cards + city walls) remain to do.
 
 ## 1. Goals & guardrails
 
