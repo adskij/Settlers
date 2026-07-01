@@ -473,7 +473,20 @@ input, select {
   flex: 1 1 0; height: 8px; border-radius: 4px; background: var(--bg-2);
 }
 .bt-pip.on { background: linear-gradient(90deg, #b8801f, #c0392b); }
-.bt-event { font-size: 11px; color: var(--muted); }
+.bt-event { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.bt-event-label { flex-shrink: 0; }
+
+/* Event-die chip (shown with the roll result and in the barbarian tracker) */
+.roll-line { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.event-die-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 800;
+  border: 1px solid rgba(255,255,255,0.14); white-space: nowrap;
+}
+.event-die-chip.ev-barbarian { background: rgba(192,57,43,0.22); color: #f0a196; }
+.event-die-chip.ev-trade { background: rgba(216,178,58,0.22); color: #ecd07e; }
+.event-die-chip.ev-politics { background: rgba(79,134,208,0.22); color: #a9c6ef; }
+.event-die-chip.ev-science { background: rgba(76,175,106,0.22); color: #9fdcb2; }
 
 /* Progress cards */
 .progress-hand .dev-card-mini { border-left: 3px solid transparent; }
