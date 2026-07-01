@@ -37,6 +37,17 @@ export const TRACK_COMMODITY: Record<ImprovementTrack, Commodity> = {
 /** Per-player level (0..5) on each improvement track. */
 export type ImprovementLevels = Record<ImprovementTrack, number>;
 
+/** Knight rank: basic (1), strong (2), mighty (3). Also its defense strength. */
+export type KnightRank = 1 | 2 | 3;
+
+/** A knight sits on a vertex; only *active* knights can act or defend. */
+export interface KnightPiece {
+  owner: PlayerColor;
+  vertexId: number;
+  rank: KnightRank;
+  active: boolean;
+}
+
 export type PlayerColor = "red" | "blue" | "white" | "orange";
 export const PLAYER_COLORS: PlayerColor[] = ["red", "blue", "white", "orange"];
 
@@ -183,6 +194,8 @@ export interface GameState {
   freeRoadsRemaining: number;
   /** C&K: which player holds each track's metropolis (+2 VP, first-to-4). */
   metropolisOwner?: Record<ImprovementTrack, PlayerColor | null>;
+  /** C&K: knight pieces on the board (all players). */
+  knights?: KnightPiece[];
   updatedAt: number;
 }
 
@@ -199,6 +212,21 @@ export const METROPOLIS_LEVEL = 4;
 export function improvementCost(nextLevel: number): number {
   return nextLevel;
 }
+
+// ---- Knights ----
+export const KNIGHT_MAX_RANK = 3;
+/** Max knights a single player may have on the board at once. */
+export const KNIGHT_LIMIT = 6;
+/** Politics level required before a knight can be promoted to Mighty (rank 3). */
+export const MIGHTY_KNIGHT_POLITICS_LEVEL = 3;
+export const KNIGHT_BUILD_COST: Partial<ResourceCounts> = { wool: 1, ore: 1 };
+export const KNIGHT_PROMOTE_COST: Partial<ResourceCounts> = { wool: 1, ore: 1 };
+export const KNIGHT_ACTIVATE_COST: Partial<ResourceCounts> = { grain: 1 };
+export const KNIGHT_RANK_NAME: Record<KnightRank, string> = {
+  1: "Basic",
+  2: "Strong",
+  3: "Mighty",
+};
 
 export const BUILD_COSTS: Record<string, Partial<ResourceCounts>> = {
   road: { brick: 1, lumber: 1 },

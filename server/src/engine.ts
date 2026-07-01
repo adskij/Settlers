@@ -14,6 +14,13 @@ import {
   TRACK_COMMODITY,
   TERRAIN_COMMODITY,
   improvementCost,
+  KNIGHT_LIMIT,
+  KNIGHT_MAX_RANK,
+  MIGHTY_KNIGHT_POLITICS_LEVEL,
+  KNIGHT_BUILD_COST,
+  KNIGHT_PROMOTE_COST,
+  KNIGHT_ACTIVATE_COST,
+  KNIGHT_RANK_NAME,
   buildDevDeck,
   generateBoard,
   mulberry32,
@@ -25,6 +32,8 @@ import {
   type GameVariant,
   type ImprovementLevels,
   type ImprovementTrack,
+  type KnightPiece,
+  type KnightRank,
   type PlayerColor,
   type PlayerState,
   type Resource,
@@ -118,7 +127,9 @@ export function createGame(
     winner: null,
     log: ["Game started. Place your first settlement."],
     freeRoadsRemaining: 0,
-    ...(ck ? { metropolisOwner: { trade: null, politics: null, science: null } } : {}),
+    ...(ck
+      ? { metropolisOwner: { trade: null, politics: null, science: null }, knights: [] }
+      : {}),
     updatedAt: Date.now(),
   };
 
@@ -402,6 +413,16 @@ export function applyAction(
         return discard(game, color, msg.resources, msg.commodities);
       case "buy_improvement":
         return buyImprovement(game, color, msg.track, isCurrent);
+      case "build_knight":
+        return buildKnight(game, color, msg.vertexId, isCurrent);
+      case "activate_knight":
+        return activateKnight(game, color, msg.vertexId, isCurrent);
+      case "promote_knight":
+        return promoteKnight(game, color, msg.vertexId, isCurrent);
+      case "move_knight":
+        return moveKnight(game, color, msg.fromVertexId, msg.toVertexId, isCurrent);
+      case "knight_chase_robber":
+        return knightChaseRobber(game, color, msg.vertexId, isCurrent);
       case "bank_trade":
         return bankTrade(game, color, msg.give, msg.receive, isCurrent);
       case "offer_trade":
@@ -613,6 +634,7 @@ function buildSettlement(game: InternalGame, color: PlayerColor, vertexId: numbe
   if (!isCurrent) return fail("Not your turn.");
   if (vertexId < 0 || vertexId >= state.board.vertices.length) return fail("Invalid vertex.");
   if (!vertexFree(state, vertexId)) return fail("Too close to another building.");
+  if (knightAt(state, vertexId)) return fail("A knight occupies that spot.");
   if (!playerOwnsRoadTo(state, color, vertexId))
     return fail("Settlement must connect to one of your roads.");
 
@@ -680,6 +702,225 @@ function buyImprovement(
   log(state, `${actor.name} advanced ${track} to level ${level + 1}.`);
   if (level + 1 >= METROPOLIS_LEVEL) updateMetropolis(state, track);
   checkWin(state);
+  return ok();
+}
+
+// ---- Cities & Knights: knights ----
+
+function knightAt(state: GameState, vertexId: number): KnightPiece | undefined {
+  return state.knights?.find((k) => k.vertexId === vertexId);
+}
+
+// A vertex is occupied if it holds a building or a knight.
+function vertexOccupied(state: GameState, vertexId: number): boolean {
+  return (
+    state.buildings.some((b) => b.vertexId === vertexId) || !!knightAt(state, vertexId)
+  );
+}
+
+// Does the player have a road touching this vertex? (knight placement rule)
+function ownRoadTouches(state: GameState, color: PlayerColor, vertexId: number): boolean {
+  return state.roads.some((rd) => {
+    if (rd.owner !== color) return false;
+    const e = state.board.edges[rd.edgeId];
+    return e.v1 === vertexId || e.v2 === vertexId;
+  });
+}
+
+// Vertices reachable from `from` along the player's own roads. Intermediate
+// vertices must be empty to pass through; a vertex holding a piece is reachable
+// but terminal (you can end on a weaker enemy knight to displace it).
+function knightReach(
+  state: GameState,
+  color: PlayerColor,
+  from: number
+): Set<number> {
+  const reach = new Set<number>();
+  const edgeBetween = new Map<string, number>();
+  for (const e of state.board.edges) {
+    const k = e.v1 < e.v2 ? `${e.v1}-${e.v2}` : `${e.v2}-${e.v1}`;
+    edgeBetween.set(k, e.id);
+  }
+  const ownRoad = (a: number, b: number) => {
+    const k = a < b ? `${a}-${b}` : `${b}-${a}`;
+    const id = edgeBetween.get(k);
+    return id != null && state.roads.some((r) => r.owner === color && r.edgeId === id);
+  };
+  const queue = [from];
+  const seen = new Set<number>([from]);
+  while (queue.length) {
+    const u = queue.shift()!;
+    for (const w of state.board.vertices[u].adjacentVertexIds) {
+      if (!ownRoad(u, w)) continue;
+      if (!reach.has(w)) reach.add(w);
+      // Can only continue through empty, unseen vertices.
+      if (!seen.has(w) && !vertexOccupied(state, w)) {
+        seen.add(w);
+        queue.push(w);
+      }
+    }
+  }
+  reach.delete(from);
+  return reach;
+}
+
+function requireCK(state: GameState): ActionResult | null {
+  if (!isCK(state)) return fail("Knights are a Cities & Knights feature.");
+  if (!state.knights) state.knights = [];
+  return null;
+}
+
+function buildKnight(
+  game: InternalGame,
+  color: PlayerColor,
+  vertexId: number,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  const guard = requireCK(state);
+  if (guard) return guard;
+  if (state.phase !== "main") return fail("Build knights during your build phase.");
+  if (!isCurrent) return fail("Not your turn.");
+  if (vertexId < 0 || vertexId >= state.board.vertices.length) return fail("Invalid vertex.");
+  if (vertexOccupied(state, vertexId)) return fail("That spot is taken.");
+  if (!ownRoadTouches(state, color, vertexId))
+    return fail("A knight must connect to your road network.");
+
+  const actor = playerByColor(state, color)!;
+  const owned = state.knights!.filter((k) => k.owner === color).length;
+  if (owned >= KNIGHT_LIMIT) return fail("You have no knights left to deploy.");
+  if (!canAfford(actor, KNIGHT_BUILD_COST)) return fail("Not enough resources.");
+
+  pay(actor, KNIGHT_BUILD_COST);
+  state.knights!.push({ owner: color, vertexId, rank: 1, active: false });
+  log(state, `${actor.name} recruited a knight.`);
+  return ok();
+}
+
+function activateKnight(
+  game: InternalGame,
+  color: PlayerColor,
+  vertexId: number,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  const guard = requireCK(state);
+  if (guard) return guard;
+  if (state.phase !== "main") return fail("Activate knights during your build phase.");
+  if (!isCurrent) return fail("Not your turn.");
+  const knight = knightAt(state, vertexId);
+  if (!knight || knight.owner !== color) return fail("That isn't your knight.");
+  if (knight.active) return fail("That knight is already active.");
+
+  const actor = playerByColor(state, color)!;
+  if (!canAfford(actor, KNIGHT_ACTIVATE_COST)) return fail("Need 1 grain to activate.");
+  pay(actor, KNIGHT_ACTIVATE_COST);
+  knight.active = true;
+  log(state, `${actor.name} activated a knight.`);
+  return ok();
+}
+
+function promoteKnight(
+  game: InternalGame,
+  color: PlayerColor,
+  vertexId: number,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  const guard = requireCK(state);
+  if (guard) return guard;
+  if (state.phase !== "main") return fail("Promote knights during your build phase.");
+  if (!isCurrent) return fail("Not your turn.");
+  const knight = knightAt(state, vertexId);
+  if (!knight || knight.owner !== color) return fail("That isn't your knight.");
+  if (knight.rank >= KNIGHT_MAX_RANK) return fail("That knight is already Mighty.");
+
+  const actor = playerByColor(state, color)!;
+  // Promoting to Mighty (rank 3) needs a Fortress (Politics level 3).
+  if (knight.rank + 1 >= KNIGHT_MAX_RANK) {
+    const politics = actor.improvements?.politics ?? 0;
+    if (politics < MIGHTY_KNIGHT_POLITICS_LEVEL)
+      return fail("Reach Politics level 3 to train Mighty knights.");
+  }
+  if (!canAfford(actor, KNIGHT_PROMOTE_COST)) return fail("Not enough resources.");
+
+  pay(actor, KNIGHT_PROMOTE_COST);
+  knight.rank = (knight.rank + 1) as KnightRank;
+  log(state, `${actor.name} promoted a knight to ${KNIGHT_RANK_NAME[knight.rank]}.`);
+  return ok();
+}
+
+function moveKnight(
+  game: InternalGame,
+  color: PlayerColor,
+  fromVertexId: number,
+  toVertexId: number,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  const guard = requireCK(state);
+  if (guard) return guard;
+  if (state.phase !== "main") return fail("Move knights during your build phase.");
+  if (!isCurrent) return fail("Not your turn.");
+  const knight = knightAt(state, fromVertexId);
+  if (!knight || knight.owner !== color) return fail("That isn't your knight.");
+  if (!knight.active) return fail("Only an active knight can move.");
+  if (toVertexId < 0 || toVertexId >= state.board.vertices.length) return fail("Invalid target.");
+
+  const reach = knightReach(state, color, fromVertexId);
+  if (!reach.has(toVertexId)) return fail("That spot isn't reachable by your roads.");
+
+  const target = knightAt(state, toVertexId);
+  const building = state.buildings.find((b) => b.vertexId === toVertexId);
+  const actor = playerByColor(state, color)!;
+
+  if (building) return fail("A building occupies that spot.");
+  if (target) {
+    // Displace a weaker enemy knight.
+    if (target.owner === color) return fail("Your own knight is there.");
+    if (target.rank >= knight.rank) return fail("That knight is too strong to displace.");
+    // Push the displaced knight to any adjacent empty vertex, else remove it.
+    const spot = state.board.vertices[toVertexId].adjacentVertexIds.find(
+      (v) => !vertexOccupied(state, v)
+    );
+    if (spot != null) {
+      target.vertexId = spot;
+      target.active = false;
+      log(state, `${actor.name}'s knight drove off ${nameOf(state, target.owner)}'s knight.`);
+    } else {
+      state.knights = state.knights!.filter((k) => k !== target);
+      log(state, `${actor.name}'s knight routed ${nameOf(state, target.owner)}'s knight.`);
+    }
+  } else {
+    log(state, `${actor.name} moved a knight.`);
+  }
+
+  knight.vertexId = toVertexId;
+  knight.active = false; // acting spends the knight's activation
+  return ok();
+}
+
+// An active knight adjacent to the robber's hex can chase it (like a Knight card).
+function knightChaseRobber(
+  game: InternalGame,
+  color: PlayerColor,
+  vertexId: number,
+  isCurrent: boolean
+): ActionResult {
+  const { state } = game;
+  const guard = requireCK(state);
+  if (guard) return guard;
+  if (state.phase !== "main") return fail("Chase the robber during your build phase.");
+  if (!isCurrent) return fail("Not your turn.");
+  const knight = knightAt(state, vertexId);
+  if (!knight || knight.owner !== color) return fail("That isn't your knight.");
+  if (!knight.active) return fail("Only an active knight can chase the robber.");
+  const adjacent = state.board.vertices[vertexId].hexIds.includes(state.board.robberHexId);
+  if (!adjacent) return fail("That knight isn't next to the robber.");
+
+  knight.active = false;
+  state.phase = "moving_robber";
+  log(state, `${nameOf(state, color)}'s knight chases the robber.`);
   return ok();
 }
 

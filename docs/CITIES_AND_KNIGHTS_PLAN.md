@@ -8,16 +8,26 @@
 > an **opt-in choice at game setup**, with the base game left fully intact when
 > the toggle is off.
 >
-> **Delivered so far (Phase 0 + Phase 1):** `variant: "base" | "cities_and_knights"`
-> threaded lobby → REST → engine → `GameState`; a lobby ruleset toggle; cities
-> on forest/pasture/mountains produce a commodity (paper/cloth/coin); the three
-> improvement tracks with per-level commodity costs; level-4 **metropolis**
-> (+2 VP, first-to-reach, transferable at level 5); commodities counted toward
-> the 7-card discard limit; 13-VP win target; HUD commodity cards, an Improve
-> panel, per-track chips, and a board metropolis marker; bots buy improvements
-> and shed commodities on a 7. Verified: 12/12 all-bot games finish in **both**
-> variants; metropolises appear in 10/12 C&K games. Phases 2–4 (knights,
-> barbarians + event die, progress cards + city walls) remain to do.
+> **Delivered so far (Phase 0 + 1 + 2):**
+> - *Phase 0/1:* `variant` threaded lobby → REST → engine → `GameState`; lobby
+>   ruleset toggle; cities on forest/pasture/mountains produce a commodity
+>   (paper/cloth/coin); three improvement tracks with per-level commodity costs;
+>   level-4 **metropolis** (+2 VP, first-to-reach, transferable at level 5);
+>   commodities counted toward the 7-card discard limit; 13-VP win target; HUD
+>   commodity cards, Improve panel, per-track chips, board metropolis marker.
+> - *Phase 2 (knights):* `KnightPiece` (rank basic/strong/mighty, active flag);
+>   recruit (wool+ore), activate (grain), promote (wool+ore; Mighty needs
+>   Politics 3), move/displace along your roads, and chase the robber with an
+>   adjacent active knight; knights block settlement placement and count road
+>   connectivity for their own placement. Bots recruit/activate a knight or two
+>   and chase robbers off their tiles. Client renders knight shields (rank pips,
+>   active dot, selection ring) and a Knights panel (recruit/activate/promote/
+>   move/chase) with active-strength readouts on player cards.
+>
+> Verified: 12/12 all-bot games finish in **both** variants; metropolises appear
+> in 10/12 C&K games; across 12 C&K games bots recruited 59 knights and chased
+> the robber 47 times. Phases 3–4 (barbarians + event die, progress cards +
+> city walls) remain to do.
 
 ## 1. Goals & guardrails
 

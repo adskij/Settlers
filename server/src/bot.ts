@@ -10,8 +10,12 @@ import {
   TRACK_COMMODITY,
   MAX_IMPROVEMENT_LEVEL,
   improvementCost,
+  KNIGHT_BUILD_COST,
+  KNIGHT_ACTIVATE_COST,
+  KNIGHT_LIMIT,
   type GameState,
   type ImprovementTrack,
+  type KnightPiece,
   type PlayerColor,
   type PlayerState,
   type Resource,
@@ -544,6 +548,65 @@ function chooseImprovement(me: PlayerState): ImprovementTrack | null {
   return best;
 }
 
+// ---- Cities & Knights: knights ----
+
+// Keep bots' knight investment modest so it doesn't starve their economy.
+const BOT_KNIGHT_CAP = 2;
+
+function knightAtBot(s: GameState, vertexId: number): KnightPiece | undefined {
+  return s.knights?.find((k) => k.vertexId === vertexId);
+}
+
+function vertexOccupiedBot(s: GameState, vertexId: number): boolean {
+  return s.buildings.some((b) => b.vertexId === vertexId) || !!knightAtBot(s, vertexId);
+}
+
+// An empty vertex touching the bot's road network, to deploy a knight.
+function knightSpot(s: GameState, color: PlayerColor): number | null {
+  for (const v of s.board.vertices) {
+    if (vertexOccupiedBot(s, v.id)) continue;
+    if (playerHasRoadTo(s, color, v.id)) return v.id;
+  }
+  return null;
+}
+
+// If the robber sits on one of the bot's producing tiles and it has an active
+// knight next to it, chase the robber away. Returns true if it acted.
+function botChaseRobber(game: InternalGame, color: PlayerColor): boolean {
+  const s = game.state;
+  if (!s.knights) return false;
+  const robberHex = s.board.robberHexId;
+  const hurtsMe = s.buildings.some(
+    (b) => b.owner === color && s.board.vertices[b.vertexId].hexIds.includes(robberHex)
+  );
+  if (!hurtsMe) return false;
+  const knight = s.knights.find(
+    (k) => k.owner === color && k.active && s.board.vertices[k.vertexId].hexIds.includes(robberHex)
+  );
+  if (!knight) return false;
+  if (!act(game, color, { type: "knight_chase_robber", vertexId: knight.vertexId })) return false;
+  // Follow through: relocate the robber to hurt an opponent instead.
+  return botMoveRobber(game, color) || true;
+}
+
+// Deploy/activate a knight when flush, up to a small cap. Returns true if acted.
+function botKnightUpkeep(game: InternalGame, color: PlayerColor, me: PlayerState): boolean {
+  const s = game.state;
+  if (s.variant !== "cities_and_knights") return false;
+  const mine = (s.knights ?? []).filter((k) => k.owner === color);
+  // Activate an idle knight so it can defend/chase later.
+  const idle = mine.find((k) => !k.active);
+  if (idle && canAfford(me, KNIGHT_ACTIVATE_COST)) {
+    if (act(game, color, { type: "activate_knight", vertexId: idle.vertexId })) return true;
+  }
+  // Recruit a knight if under the cap and it won't be needed for a city.
+  if (mine.length < BOT_KNIGHT_CAP && mine.length < KNIGHT_LIMIT && canAfford(me, KNIGHT_BUILD_COST)) {
+    const spot = knightSpot(s, color);
+    if (spot != null && act(game, color, { type: "build_knight", vertexId: spot })) return true;
+  }
+  return false;
+}
+
 // ---- Main phase: build, trade toward a build, else end the turn ----
 
 function botMain(game: InternalGame, color: PlayerColor): boolean {
@@ -553,7 +616,10 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
   // Drop any trade state left over from a previous turn.
   if (game.botTrade && game.botTrade.color !== color) game.botTrade = null;
 
-  // 0. C&K: spend commodities on city improvements (metropolis = +2 VP).
+  // 0. C&K: chase a robber sitting on our tile with an adjacent active knight.
+  if (botChaseRobber(game, color)) return true;
+
+  // 0b. C&K: spend commodities on city improvements (metropolis = +2 VP).
   const track = chooseImprovement(me);
   if (track && act(game, color, { type: "buy_improvement", track })) return true;
 
@@ -584,6 +650,8 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
     }
     if (edgeId != null && act(game, color, { type: "build_road", edgeId })) return true;
   }
+  // 4b. C&K: keep a knight or two deployed and active (cheap standing defense).
+  if (botKnightUpkeep(game, color, me)) return true;
   // 5. Otherwise bank a development card if flush.
   if (s.devDeckCount > 0 && canAfford(me, BUILD_COSTS.dev_card)) {
     if (act(game, color, { type: "buy_dev_card" })) return true;

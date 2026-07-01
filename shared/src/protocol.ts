@@ -34,6 +34,11 @@ export type ClientMessage =
       commodities?: Partial<CommodityCounts>;
     }
   | { type: "buy_improvement"; track: ImprovementTrack }
+  | { type: "build_knight"; vertexId: number }
+  | { type: "activate_knight"; vertexId: number }
+  | { type: "promote_knight"; vertexId: number }
+  | { type: "move_knight"; fromVertexId: number; toVertexId: number }
+  | { type: "knight_chase_robber"; vertexId: number }
   | {
       type: "offer_trade";
       to: PlayerColor | null;

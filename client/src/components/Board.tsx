@@ -59,17 +59,60 @@ export function Board({
   send,
   buildMode,
   clearBuildMode,
+  knightMoveFrom,
+  setKnightMoveFrom,
 }: {
   state: GameState;
   you: PlayerColor | null;
   send: (msg: ClientMessage) => void;
   buildMode: BuildMode;
   clearBuildMode: () => void;
+  knightMoveFrom?: number | null;
+  setKnightMoveFrom?: (v: number | null) => void;
 }) {
   const board = state.board;
   const [robberHex, setRobberHex] = useState<number | null>(null);
 
   const isYourTurn = state.players[state.currentPlayerIndex]?.color === you;
+
+  // ---- Cities & Knights: knight geometry helpers ----
+  const knightAt = (vid: number) => state.knights?.find((k) => k.vertexId === vid);
+  const vertexOccupied = (vid: number) =>
+    state.buildings.some((b) => b.vertexId === vid) || !!knightAt(vid);
+  const ownRoadTouches = (vid: number) =>
+    !!you &&
+    state.roads.some((rd) => {
+      if (rd.owner !== you) return false;
+      const e = board.edges[rd.edgeId];
+      return e.v1 === vid || e.v2 === vid;
+    });
+
+  // Vertices an active knight at `from` can reach along the player's own roads.
+  const knightReach = (from: number): Set<number> => {
+    const reach = new Set<number>();
+    if (!you) return reach;
+    const ownRoad = (a: number, b: number) =>
+      state.roads.some((r) => {
+        if (r.owner !== you) return false;
+        const e = board.edges[r.edgeId];
+        return (e.v1 === a && e.v2 === b) || (e.v1 === b && e.v2 === a);
+      });
+    const queue = [from];
+    const seen = new Set<number>([from]);
+    while (queue.length) {
+      const u = queue.shift()!;
+      for (const w of board.vertices[u].adjacentVertexIds) {
+        if (!ownRoad(u, w)) continue;
+        reach.add(w);
+        if (!seen.has(w) && !vertexOccupied(w)) {
+          seen.add(w);
+          queue.push(w);
+        }
+      }
+    }
+    reach.delete(from);
+    return reach;
+  };
 
   // Compute viewBox from vertex extents with padding.
   const view = useMemo(() => {
@@ -111,6 +154,14 @@ export function Board({
   // --- interaction handlers ---
   const onVertex = (vertexId: number) => {
     if (!isYourTurn) return;
+    // C&K: completing a knight move (a source knight was selected in the HUD).
+    if (knightMoveFrom != null && state.phase === "main") {
+      if (vertexId !== knightMoveFrom) {
+        send({ type: "move_knight", fromVertexId: knightMoveFrom, toVertexId: vertexId });
+      }
+      setKnightMoveFrom?.(null);
+      return;
+    }
     if (state.phase === "setup" && state.setupStep === "settlement") {
       send({ type: "place_setup_settlement", vertexId });
     } else if (state.phase === "main" && buildMode === "settlement") {
@@ -118,6 +169,9 @@ export function Board({
       clearBuildMode();
     } else if (state.phase === "main" && buildMode === "city") {
       send({ type: "build_city", vertexId });
+      clearBuildMode();
+    } else if (state.phase === "main" && buildMode === "knight") {
+      send({ type: "build_knight", vertexId });
       clearBuildMode();
     }
   };
@@ -163,6 +217,20 @@ export function Board({
     ((state.phase === "setup" && state.setupStep === "road") ||
       (state.phase === "main" && buildMode === "road"));
   const hexActive = isYourTurn && state.phase === "moving_robber";
+
+  // C&K: which vertices to spotlight for knight placement / movement.
+  const knightHighlights = useMemo(() => {
+    const set = new Set<number>();
+    if (!isYourTurn || state.phase !== "main") return set;
+    if (buildMode === "knight") {
+      for (const v of board.vertices)
+        if (!vertexOccupied(v.id) && ownRoadTouches(v.id)) set.add(v.id);
+    } else if (knightMoveFrom != null) {
+      for (const vid of knightReach(knightMoveFrom)) set.add(vid);
+    }
+    return set;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isYourTurn, state.phase, buildMode, knightMoveFrom, state.knights, state.roads, state.buildings, you]);
 
   return (
     <div className="board-wrap">
@@ -298,9 +366,31 @@ export function Board({
           );
         })}
 
-        {/* Vertices (buildings + clickable slots) */}
+        {/* Vertices (buildings + knights + clickable slots) */}
         {board.vertices.map((v) => {
           const b = state.buildings.find((bb) => bb.vertexId === v.id);
+          const k = !b ? knightAt(v.id) : undefined;
+          if (k) {
+            const isSource = knightMoveFrom === v.id;
+            const targetable = knightHighlights.has(v.id); // displace target
+            return (
+              <g
+                key={v.id}
+                filter="url(#piece-shadow)"
+                className={targetable ? "vertex-clickable" : ""}
+                onClick={() => onVertex(v.id)}
+              >
+                <KnightToken
+                  x={v.pos.x}
+                  y={v.pos.y}
+                  fill={PLAYER_FILL[k.owner]}
+                  rank={k.rank}
+                  active={k.active}
+                  highlighted={isSource || targetable}
+                />
+              </g>
+            );
+          }
           if (b) {
             return (
               <g key={v.id} filter="url(#piece-shadow)" onClick={() => onVertex(v.id)}>
@@ -342,15 +432,17 @@ export function Board({
               </g>
             );
           }
+          const knightSpot = knightHighlights.has(v.id);
+          const lit = vertexActive || knightSpot;
           return (
             <circle
               key={v.id}
               cx={v.pos.x}
               cy={v.pos.y}
-              r={vertexActive ? 1.5 : 1.6}
-              fill={vertexActive ? "#ffffff" : "transparent"}
-              fillOpacity={vertexActive ? 0.65 : 0}
-              className={vertexActive ? "vertex-clickable" : "vertex-hit"}
+              r={lit ? 1.5 : 1.6}
+              fill={knightSpot ? "#7fd0ff" : lit ? "#ffffff" : "transparent"}
+              fillOpacity={lit ? 0.7 : 0}
+              className={lit ? "vertex-clickable" : "vertex-hit"}
               onClick={() => onVertex(v.id)}
             />
           );
@@ -404,6 +496,49 @@ function Robber({ cx, cy }: { cx: number; cy: number }) {
         {/* highlight */}
         <ellipse cx={cx - 0.45} cy={cy - 3.0} rx={0.5} ry={0.72} fill="#ffffff" opacity={0.22} />
       </g>
+    </g>
+  );
+}
+
+// A knight piece: a shield in the owner's colour with rank pips. Dimmed when
+// inactive; ringed when selected/targetable during a move.
+function KnightToken({
+  x,
+  y,
+  fill,
+  rank,
+  active,
+  highlighted,
+}: {
+  x: number;
+  y: number;
+  fill: string;
+  rank: number;
+  active: boolean;
+  highlighted: boolean;
+}) {
+  const shield = `M ${x} ${y - 1.9}
+    L ${x + 1.5} ${y - 1.2}
+    L ${x + 1.3} ${y + 0.9}
+    Q ${x} ${y + 2.2} ${x} ${y + 2.2}
+    Q ${x} ${y + 2.2} ${x - 1.3} ${y + 0.9}
+    L ${x - 1.5} ${y - 1.2} Z`;
+  return (
+    <g opacity={active ? 1 : 0.55}>
+      {highlighted && (
+        <circle cx={x} cy={y} r={2.7} fill="none" stroke="#7fd0ff" strokeWidth={0.45} />
+      )}
+      <path d={shield} fill={fill} stroke="#11212b" strokeWidth={0.35} />
+      {/* sword emblem */}
+      <line x1={x} y1={y - 1.2} x2={x} y2={y + 1.1} stroke="#11212b" strokeWidth={0.28} />
+      <line x1={x - 0.6} y1={y - 0.2} x2={x + 0.6} y2={y - 0.2} stroke="#11212b" strokeWidth={0.28} />
+      {/* rank pips */}
+      <g fill="#f5efd9" stroke="#11212b" strokeWidth={0.08}>
+        {Array.from({ length: rank }).map((_, i) => (
+          <circle key={i} cx={x - (rank - 1) * 0.35 + i * 0.7} cy={y + 1.55} r={0.28} />
+        ))}
+      </g>
+      {active && <circle cx={x + 1.15} cy={y - 1.5} r={0.42} fill="#5fe08a" stroke="#11212b" strokeWidth={0.12} />}
     </g>
   );
 }

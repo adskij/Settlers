@@ -6,7 +6,7 @@ import { useGameSocket } from "../lib/useGameSocket.js";
 import { Board } from "./Board.js";
 import { Hud } from "./Hud.js";
 
-export type BuildMode = "road" | "settlement" | "city" | null;
+export type BuildMode = "road" | "settlement" | "city" | "knight" | null;
 
 export function GameScreen({
   gameId,
@@ -20,12 +20,16 @@ export function GameScreen({
   const sock = useGameSocket(gameId);
   const [lobby, setLobby] = useState<LobbyGame | null>(null);
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
+  const [knightMoveFrom, setKnightMoveFrom] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const joinAttempted = useRef(false);
 
   // Reset any selected build tool whenever the turn/phase changes.
   const phaseKey = `${sock.state?.phase}:${sock.state?.currentPlayerIndex}`;
-  useEffect(() => setBuildMode(null), [phaseKey]);
+  useEffect(() => {
+    setBuildMode(null);
+    setKnightMoveFrom(null);
+  }, [phaseKey]);
 
   // After playing Road Building (or any free-road effect), drop straight into
   // road-placement mode so the player can just tap the board.
@@ -141,6 +145,8 @@ export function GameScreen({
           send={sock.send}
           buildMode={buildMode}
           clearBuildMode={() => setBuildMode(null)}
+          knightMoveFrom={knightMoveFrom}
+          setKnightMoveFrom={setKnightMoveFrom}
         />
       </div>
 
@@ -151,7 +157,16 @@ export function GameScreen({
         error={sock.error}
         clearError={sock.clearError}
         buildMode={buildMode}
-        setBuildMode={setBuildMode}
+        setBuildMode={(m) => {
+          setBuildMode(m);
+          setKnightMoveFrom(null);
+        }}
+        knightMoveFrom={knightMoveFrom}
+        startKnightMove={(v) => {
+          setBuildMode(null);
+          setKnightMoveFrom(v);
+        }}
+        cancelKnightMove={() => setKnightMoveFrom(null)}
       />
     </div>
   );

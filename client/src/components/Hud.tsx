@@ -10,11 +10,19 @@ import {
   improvementCost,
   VICTORY_POINTS_TO_WIN,
   CK_VICTORY_POINTS_TO_WIN,
+  KNIGHT_LIMIT,
+  KNIGHT_MAX_RANK,
+  KNIGHT_RANK_NAME,
+  MIGHTY_KNIGHT_POLITICS_LEVEL,
+  KNIGHT_BUILD_COST,
+  KNIGHT_ACTIVATE_COST,
+  KNIGHT_PROMOTE_COST,
   type ClientMessage,
   type Commodity,
   type DevCardKind,
   type GameState,
   type ImprovementTrack,
+  type KnightPiece,
   type PlayerColor,
   type PlayerState,
   type Resource,
@@ -53,6 +61,13 @@ function winTargetOf(state: GameState): number {
 function commodityTotal(p: PlayerState): number {
   if (!p.commodities) return 0;
   return COMMODITIES.reduce((s, c) => s + (p.commodities![c] ?? 0), 0);
+}
+
+// Sum of ranks of a player's *active* knights (their barbarian-defense strength).
+function knightStrengthOf(state: GameState, color: PlayerColor): number {
+  return (state.knights ?? [])
+    .filter((k) => k.owner === color && k.active)
+    .reduce((s, k) => s + k.rank, 0);
 }
 
 const DEV_META: Record<DevCardKind, { icon: string; label: string }> = {
@@ -156,6 +171,9 @@ export function Hud({
   clearError,
   buildMode,
   setBuildMode,
+  knightMoveFrom = null,
+  startKnightMove,
+  cancelKnightMove,
 }: {
   state: GameState;
   you: PlayerColor | null;
@@ -164,11 +182,14 @@ export function Hud({
   clearError: () => void;
   buildMode: BuildMode;
   setBuildMode: (m: BuildMode) => void;
+  knightMoveFrom?: number | null;
+  startKnightMove?: (vertexId: number) => void;
+  cancelKnightMove?: () => void;
 }) {
   const me = state.players.find((p) => p.color === you) ?? null;
   const isYourTurn = state.players[state.currentPlayerIndex]?.color === you;
   const ck = isCK(state);
-  const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev" | "improve">("none");
+  const [panel, setPanel] = useState<"none" | "bank" | "trade" | "dev" | "improve" | "knights">("none");
   const [showCosts, setShowCosts] = useState(false);
   const [infoCard, setInfoCard] = useState<DevCardKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -265,7 +286,12 @@ export function Hud({
                       🏛️
                     </span>
                   ))}
-                {p.playedKnights > 0 && (
+                {ck && knightStrengthOf(state, p.color) > 0 && (
+                  <span className="pc-tag muted" title="Active knight strength">
+                    ⚔️ {knightStrengthOf(state, p.color)}
+                  </span>
+                )}
+                {!ck && p.playedKnights > 0 && (
                   <span className="pc-tag muted" title="Knights played">
                     ⚔️ {p.playedKnights}
                   </span>
@@ -414,6 +440,18 @@ export function Hud({
         <PromptText state={state} you={you} isYourTurn={isYourTurn} />
       </div>
 
+      {isYourTurn && buildMode === "knight" && (
+        <div className="prompt-bar knight-hint">
+          <span className="prompt-hot">⚔️ Tap a highlighted spot to place your knight.</span>
+        </div>
+      )}
+      {isYourTurn && knightMoveFrom != null && (
+        <div className="prompt-bar knight-hint">
+          <span className="prompt-hot">⚔️ Tap a highlighted spot to move your knight.</span>
+          <button className="btn sm ghost" onClick={() => cancelKnightMove?.()}>Cancel</button>
+        </div>
+      )}
+
       {/* Discard panel */}
       {owesDiscard ? (
         <DiscardPanel me={me!} owed={owesDiscard} send={send} />
@@ -445,6 +483,11 @@ export function Hud({
                   🏛️ Improve
                 </button>
               )}
+              {ck && (
+                <button className="btn" onClick={() => setPanel(panel === "knights" ? "none" : "knights")}>
+                  ⚔️ Knights
+                </button>
+              )}
               <button className="btn" onClick={() => setPanel(panel === "bank" ? "none" : "bank")}>🏦 Bank</button>
               <button className="btn" onClick={() => setPanel(panel === "trade" ? "none" : "trade")}>🤝 Offer</button>
               <button className="btn primary" onClick={() => send({ type: "end_turn" })}>End turn ⏭️</button>
@@ -462,6 +505,21 @@ export function Hud({
           )}
           {isYourTurn && state.phase === "main" && panel === "improve" && me && ck && (
             <ImprovePanel state={state} me={me} send={send} />
+          )}
+          {isYourTurn && state.phase === "main" && panel === "knights" && me && ck && (
+            <KnightsPanel
+              state={state}
+              me={me}
+              send={send}
+              onRecruit={() => {
+                setBuildMode("knight");
+                setPanel("none");
+              }}
+              onMove={(v) => {
+                startKnightMove?.(v);
+                setPanel("none");
+              }}
+            />
           )}
         </>
       )}
@@ -944,6 +1002,100 @@ function ImprovePanel({
                 </>
               )}
             </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Cities & Knights: recruit, activate, promote, move and deploy knights.
+function KnightsPanel({
+  state,
+  me,
+  send,
+  onRecruit,
+  onMove,
+}: {
+  state: GameState;
+  me: PlayerState;
+  send: (msg: ClientMessage) => void;
+  onRecruit: () => void;
+  onMove: (vertexId: number) => void;
+}) {
+  const afford = (cost: Partial<ResourceCounts>) =>
+    RESOURCES.every((r) => me.resources[r] >= (cost[r] ?? 0));
+  const mine = (state.knights ?? []).filter((k) => k.owner === me.color);
+  const activeStrength = mine.filter((k) => k.active).reduce((s, k) => s + k.rank, 0);
+  const politics = me.improvements?.politics ?? 0;
+  const atLimit = mine.length >= KNIGHT_LIMIT;
+  const canRecruit = !atLimit && afford(KNIGHT_BUILD_COST);
+  const robberHex = state.board.robberHexId;
+  const adjacentRobber = (k: KnightPiece) =>
+    state.board.vertices[k.vertexId].hexIds.includes(robberHex);
+
+  return (
+    <div className="panel knights-panel">
+      <div className="knights-head">
+        <span className="muted">
+          Knights {mine.length}/{KNIGHT_LIMIT} · active strength <strong>{activeStrength}</strong>
+        </span>
+        <button className="btn sm primary" disabled={!canRecruit} onClick={onRecruit}>
+          ＋ Recruit 🐑1 ⛰️1
+        </button>
+      </div>
+      {mine.length === 0 && (
+        <p className="muted knights-empty">No knights yet. Recruit one to defend Catan.</p>
+      )}
+      {mine.map((k) => {
+        const canActivate = !k.active && afford(KNIGHT_ACTIVATE_COST);
+        const canPromoteRank =
+          k.rank < KNIGHT_MAX_RANK &&
+          (k.rank + 1 < KNIGHT_MAX_RANK || politics >= MIGHTY_KNIGHT_POLITICS_LEVEL);
+        const canPromote = canPromoteRank && afford(KNIGHT_PROMOTE_COST);
+        return (
+          <div key={k.vertexId} className="knight-row">
+            <span className={`knight-badge rank-${k.rank} ${k.active ? "active" : "idle"}`}>
+              ⚔️ {KNIGHT_RANK_NAME[k.rank]}
+              <small>{k.active ? "active" : "idle"}</small>
+            </span>
+            <span className="knight-actions">
+              {!k.active && (
+                <button
+                  className="btn sm"
+                  disabled={!canActivate}
+                  title="Activate (1 grain)"
+                  onClick={() => send({ type: "activate_knight", vertexId: k.vertexId })}
+                >
+                  Activate 🌾
+                </button>
+              )}
+              <button
+                className="btn sm"
+                disabled={!canPromote}
+                title={
+                  k.rank + 1 >= KNIGHT_MAX_RANK && politics < MIGHTY_KNIGHT_POLITICS_LEVEL
+                    ? "Needs Politics level 3"
+                    : "Promote (1 wool, 1 ore)"
+                }
+                onClick={() => send({ type: "promote_knight", vertexId: k.vertexId })}
+              >
+                Promote ⬆
+              </button>
+              {k.active && (
+                <button className="btn sm" onClick={() => onMove(k.vertexId)}>
+                  Move
+                </button>
+              )}
+              {k.active && adjacentRobber(k) && (
+                <button
+                  className="btn sm"
+                  onClick={() => send({ type: "knight_chase_robber", vertexId: k.vertexId })}
+                >
+                  Chase robber
+                </button>
+              )}
+            </span>
           </div>
         );
       })}
