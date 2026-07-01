@@ -24,10 +24,21 @@
 >   active dot, selection ring) and a Knights panel (recruit/activate/promote/
 >   move/chase) with active-strength readouts on player cards.
 >
-> Verified: 12/12 all-bot games finish in **both** variants; metropolises appear
-> in 10/12 C&K games; across 12 C&K games bots recruited 59 knights and chased
-> the robber 47 times. Phases 3–4 (barbarians + event die, progress cards +
-> city walls) remain to do.
+> - *Phase 3 (barbarians + event die):* a coloured event die rolls alongside the
+>   two number dice (3/6 faces = barbarian, one each trade/politics/science
+>   gate). Barbarian faces advance a 7-step ship; on arrival, total **active**
+>   knight strength is compared to the number of cities — defenders award the
+>   single strongest player **Defender of Catan** (+1 VP), otherwise the weakest
+>   city-owners each lose a city (least-valuable non-metropolis city downgraded).
+>   Every knight deactivates after an attack and the ship resets. Bots rally
+>   knights as the ship nears arrival. Client shows a barbarian tracker (ship
+>   progress + strength-vs-cities balance + last event-die face) and defender
+>   tokens on player cards.
+>
+> Verified: 16/16 all-bot games finish in **both** variants; metropolises appear
+> broadly; across 16 C&K games the barbarians attacked 38 times, Defender of
+> Catan was awarded 25 times, and cities were pillaged when defense fell short.
+> Phase 4 (progress cards + city walls + gate draws) remains to do.
 
 ## 1. Goals & guardrails
 

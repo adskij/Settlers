@@ -13,6 +13,7 @@ import {
   KNIGHT_BUILD_COST,
   KNIGHT_ACTIVATE_COST,
   KNIGHT_LIMIT,
+  BARBARIAN_TRACK_LENGTH,
   type GameState,
   type ImprovementTrack,
   type KnightPiece,
@@ -551,7 +552,7 @@ function chooseImprovement(me: PlayerState): ImprovementTrack | null {
 // ---- Cities & Knights: knights ----
 
 // Keep bots' knight investment modest so it doesn't starve their economy.
-const BOT_KNIGHT_CAP = 2;
+const BOT_KNIGHT_CAP = 3;
 
 function knightAtBot(s: GameState, vertexId: number): KnightPiece | undefined {
   return s.knights?.find((k) => k.vertexId === vertexId);
@@ -589,6 +590,24 @@ function botChaseRobber(game: InternalGame, color: PlayerColor): boolean {
   return botMoveRobber(game, color) || true;
 }
 
+// The barbarians are nearly here: get knights active (or raise one) to defend.
+function botBarbarianDefense(game: InternalGame, color: PlayerColor, me: PlayerState): boolean {
+  const s = game.state;
+  if (s.variant !== "cities_and_knights") return false;
+  const step = s.barbarianStep ?? 0;
+  if (step < BARBARIAN_TRACK_LENGTH - 2) return false; // only act when imminent
+  const mine = (s.knights ?? []).filter((k) => k.owner === color);
+  const idle = mine.find((k) => !k.active);
+  if (idle && canAfford(me, KNIGHT_ACTIVATE_COST)) {
+    if (act(game, color, { type: "activate_knight", vertexId: idle.vertexId })) return true;
+  }
+  if (mine.length < BOT_KNIGHT_CAP && mine.length < KNIGHT_LIMIT && canAfford(me, KNIGHT_BUILD_COST)) {
+    const spot = knightSpot(s, color);
+    if (spot != null && act(game, color, { type: "build_knight", vertexId: spot })) return true;
+  }
+  return false;
+}
+
 // Deploy/activate a knight when flush, up to a small cap. Returns true if acted.
 function botKnightUpkeep(game: InternalGame, color: PlayerColor, me: PlayerState): boolean {
   const s = game.state;
@@ -618,6 +637,9 @@ function botMain(game: InternalGame, color: PlayerColor): boolean {
 
   // 0. C&K: chase a robber sitting on our tile with an adjacent active knight.
   if (botChaseRobber(game, color)) return true;
+
+  // 0a. C&K: rally knights when the barbarian ship is about to land.
+  if (botBarbarianDefense(game, color, me)) return true;
 
   // 0b. C&K: spend commodities on city improvements (metropolis = +2 VP).
   const track = chooseImprovement(me);

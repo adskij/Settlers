@@ -17,6 +17,7 @@ import {
   KNIGHT_BUILD_COST,
   KNIGHT_ACTIVATE_COST,
   KNIGHT_PROMOTE_COST,
+  BARBARIAN_TRACK_LENGTH,
   type ClientMessage,
   type Commodity,
   type DevCardKind,
@@ -144,6 +145,7 @@ function publicVP(state: GameState, color: PlayerColor): number {
       if (state.metropolisOwner[track] === color) vp += 2; // C&K metropolis
     }
   }
+  if (p?.defenderTokens) vp += p.defenderTokens; // C&K Defender of Catan tokens
   return vp;
 }
 
@@ -291,6 +293,11 @@ export function Hud({
                     ⚔️ {knightStrengthOf(state, p.color)}
                   </span>
                 )}
+                {ck && (p.defenderTokens ?? 0) > 0 && (
+                  <span className="pc-tag" title="Defender of Catan (+1 VP each)">
+                    🛡️ {p.defenderTokens}
+                  </span>
+                )}
                 {!ck && p.playedKnights > 0 && (
                   <span className="pc-tag muted" title="Knights played">
                     ⚔️ {p.playedKnights}
@@ -304,6 +311,9 @@ export function Hud({
 
       {/* Special awards: Longest Road & Largest Army (each worth 2 VP) */}
       <AwardsBar state={state} you={you} />
+
+      {/* Cities & Knights: the advancing barbarian ship */}
+      {ck && <BarbarianTracker state={state} />}
 
       {/* Pending trade offers */}
       {state.pendingTrades.length > 0 && (
@@ -596,6 +606,40 @@ function AwardsBar({ state, you }: { state: GameState; you: PlayerColor | null }
         </span>
         <span className="award-vp">+2</span>
       </div>
+    </div>
+  );
+}
+
+// Cities & Knights: the barbarian ship's progress, and whether Catan's active
+// knights currently outweigh its cities (the test when the ship lands).
+function BarbarianTracker({ state }: { state: GameState }) {
+  const step = state.barbarianStep ?? 0;
+  const total = BARBARIAN_TRACK_LENGTH;
+  const strength = state.players.reduce((s, p) => s + knightStrengthOf(state, p.color), 0);
+  const cities = state.buildings.filter((b) => b.kind === "city").length;
+  const safe = strength >= cities;
+  const eventLabel: Record<string, string> = {
+    barbarian: "🚢 Barbarians advanced",
+    trade: "🟡 Trade gate",
+    politics: "🔵 Politics gate",
+    science: "🟢 Science gate",
+  };
+  return (
+    <div className={`barbarian-tracker ${step >= total - 1 ? "imminent" : ""}`}>
+      <div className="bt-head">
+        <span className="bt-title">🚢 Barbarians</span>
+        <span className={`bt-balance ${safe ? "ok" : "danger"}`} title="Total active knight strength vs number of cities">
+          ⚔️ {strength} vs 🏙️ {cities}
+        </span>
+      </div>
+      <div className="bt-track">
+        {Array.from({ length: total }).map((_, i) => (
+          <span key={i} className={`bt-pip ${i < step ? "on" : ""}`} />
+        ))}
+      </div>
+      {state.eventDie && (
+        <div className="bt-event">{eventLabel[state.eventDie] ?? state.eventDie}</div>
+      )}
     </div>
   );
 }

@@ -37,6 +37,9 @@ export const TRACK_COMMODITY: Record<ImprovementTrack, Commodity> = {
 /** Per-player level (0..5) on each improvement track. */
 export type ImprovementLevels = Record<ImprovementTrack, number>;
 
+/** The coloured event die rolled alongside the two number dice in C&K. */
+export type EventDie = "barbarian" | "trade" | "politics" | "science";
+
 /** Knight rank: basic (1), strong (2), mighty (3). Also its defense strength. */
 export type KnightRank = 1 | 2 | 3;
 
@@ -139,6 +142,8 @@ export interface PlayerState {
   commodities?: CommodityCounts;
   /** C&K: level (0..5) reached on each city-improvement track. */
   improvements?: ImprovementLevels;
+  /** C&K: Defender of Catan tokens earned repelling barbarians (+1 VP each). */
+  defenderTokens?: number;
 }
 
 export type GamePhase =
@@ -196,6 +201,10 @@ export interface GameState {
   metropolisOwner?: Record<ImprovementTrack, PlayerColor | null>;
   /** C&K: knight pieces on the board (all players). */
   knights?: KnightPiece[];
+  /** C&K: the last event-die face rolled. */
+  eventDie?: EventDie | null;
+  /** C&K: barbarian ship position (0..BARBARIAN_TRACK_LENGTH). */
+  barbarianStep?: number;
   updatedAt: number;
 }
 
@@ -227,6 +236,10 @@ export const KNIGHT_RANK_NAME: Record<KnightRank, string> = {
   2: "Strong",
   3: "Mighty",
 };
+
+// ---- Barbarians ----
+/** Steps the barbarian ship advances before it attacks Catan. */
+export const BARBARIAN_TRACK_LENGTH = 7;
 
 export const BUILD_COSTS: Record<string, Partial<ResourceCounts>> = {
   road: { brick: 1, lumber: 1 },
